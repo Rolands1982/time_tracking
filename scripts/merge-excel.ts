@@ -8,7 +8,8 @@
  * Each input is "path[=client name[:default rate]]". When the client name is omitted it is
  * guessed from the file name; the default rate is only used for rows where the sheet gives none.
  * Add --json out.json to also write a backup file the app can restore.
- * Add --billed-before 2023-06-01 to mark rows older than that date as billed when their sheet has no billing column.
+ * Add --billed-before 2023-06-01 to mark rows older than that date as billed in their own month (invoice date =
+ * month end) when their sheet has no billing column.
  */
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'

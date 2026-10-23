@@ -138,7 +138,7 @@ export default function DataPage() {
               </label>
             </div>
             <label className="field">
-              <span>Treat rows before this date as billed (sheets without a billing column)</span>
+              <span>Treat rows before this date as billed in their own month (sheets without a billing column)</span>
               <input type="date" value={billedBefore} onChange={(e) => setBilledBefore(e.target.value)} />
             </label>
             {!preview && (

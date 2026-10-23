@@ -326,15 +326,24 @@ export async function parseWorkbook(data: ArrayBuffer | Uint8Array, opts: Import
   return result
 }
 
+/** Last day of the month an ISO date falls in. */
+export function endOfMonth(isoDate: string): string {
+  const [y, m] = isoDate.split('-').map(Number)
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+}
+
 /**
  * Old sheets carry no billing column although everything in them was invoiced long ago.
- * Marks such rows dated before `isoDate` as billed (without an invoice date). Returns the number changed.
+ * Marks such rows dated before `isoDate` as billed in their own month (invoice date = month end).
+ * Returns the number of rows changed.
  */
 export function applyBilledBefore(entries: ParsedEntry[], isoDate: string): number {
   let n = 0
   for (const e of entries) {
     if (!e.hasBillingInfo && !e.isBilled && e.billable !== false && e.date < isoDate) {
       e.isBilled = true
+      e.invoiceDate = endOfMonth(e.date)
       n++
     }
   }

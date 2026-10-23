@@ -67,7 +67,8 @@ describe('Excel import', () => {
     expect(fresh.entries.filter((e) => e.hasBillingInfo).map((e) => e.sheet)).toEqual(['Support', 'Support', 'Support', 'Uzskaite', 'Uzskaite', 'Uzskaite'])
     const n = applyBilledBefore(fresh.entries, '2019-01-03')
     expect(n).toBe(6) // 4 October rows + 2 Jan 2019 rows dated 2019-01-02
-    expect(fresh.entries.filter((e) => e.sheet === 'October').every((e) => e.isBilled && !e.invoiceDate)).toBe(true)
+    expect(fresh.entries.filter((e) => e.sheet === 'October').every((e) => e.isBilled && e.invoiceDate === '2018-10-31')).toBe(true)
+    expect(fresh.entries.find((e) => e.sheet === 'Jan 2019' && e.date === '2019-01-02')?.invoiceDate).toBe('2019-01-31')
     expect(fresh.entries.filter((e) => e.sheet === 'Jan 2019' && e.date === '2019-01-03').every((e) => !e.isBilled)).toBe(true)
     expect(fresh.entries.filter((e) => e.sheet === 'Uzskaite')[2].isBilled).toBe(false) // has billing column, untouched
   })
