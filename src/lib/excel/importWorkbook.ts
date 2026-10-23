@@ -49,6 +49,8 @@ export interface ParsedEntry {
   invoiceRef?: string
   /** false when the row is marked as not to be invoiced. */
   billable?: boolean
+  /** True when the sheet has a billing / invoice column at all (old sheets have none). */
+  hasBillingInfo: boolean
   sheet: string
   row: number
   importKey: string
@@ -296,6 +298,7 @@ function parseSheet(ws: Worksheet, opts: ImportOptions, warnings: string[]): { e
       invoiceDate: billed.invoiceDate,
       invoiceRef: billed.invoiceRef,
       billable: billed.billable,
+      hasBillingInfo: c.billed != null || c.invoiceDate != null || c.invoiceRef != null,
       sheet: ws.name,
       row: r,
       importKey: makeImportKey(base),
@@ -321,6 +324,21 @@ export async function parseWorkbook(data: ArrayBuffer | Uint8Array, opts: Import
     result.sheets.push(report)
   })
   return result
+}
+
+/**
+ * Old sheets carry no billing column although everything in them was invoiced long ago.
+ * Marks such rows dated before `isoDate` as billed (without an invoice date). Returns the number changed.
+ */
+export function applyBilledBefore(entries: ParsedEntry[], isoDate: string): number {
+  let n = 0
+  for (const e of entries) {
+    if (!e.hasBillingInfo && !e.isBilled && e.billable !== false && e.date < isoDate) {
+      e.isBilled = true
+      n++
+    }
+  }
+  return n
 }
 
 export { guessClientName } from './guessClientName'

@@ -21,6 +21,7 @@ export default function DataPage() {
   const [file, setFile] = useState<File | null>(null)
   const [clientName, setClientName] = useState('')
   const [defaultRate, setDefaultRate] = useState('')
+  const [billedBefore, setBilledBefore] = useState('')
   const [preview, setPreview] = useState<ParseResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
@@ -38,9 +39,13 @@ export default function DataPage() {
     if (!file) return
     setBusy(true)
     try {
-      const { parseWorkbook } = await import('../lib/excel/importWorkbook')
+      const { parseWorkbook, applyBilledBefore } = await import('../lib/excel/importWorkbook')
       const data = await file.arrayBuffer()
       const result = await parseWorkbook(data, { clientName: clientName.trim() || 'Client', defaultRate: Number(defaultRate) || 0 })
+      if (billedBefore) {
+        const n = applyBilledBefore(result.entries, billedBefore)
+        if (n) result.warnings.unshift(`${n} rows before ${billedBefore} marked as billed (their sheets have no billing column)`)
+      }
       setPreview(result)
       if (!result.entries.length) toast('No entries recognised in this file')
     } catch (err) {
@@ -132,6 +137,10 @@ export default function DataPage() {
                 <input type="number" inputMode="decimal" value={defaultRate} onChange={(e) => setDefaultRate(e.target.value)} placeholder="only if missing" />
               </label>
             </div>
+            <label className="field">
+              <span>Treat rows before this date as billed (sheets without a billing column)</span>
+              <input type="date" value={billedBefore} onChange={(e) => setBilledBefore(e.target.value)} />
+            </label>
             {!preview && (
               <button className="btn primary" onClick={analyse} disabled={busy}>
                 {busy ? 'Reading…' : 'Analyse file'}

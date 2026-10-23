@@ -8,10 +8,11 @@
  * Each input is "path[=client name[:default rate]]". When the client name is omitted it is
  * guessed from the file name; the default rate is only used for rows where the sheet gives none.
  * Add --json out.json to also write a backup file the app can restore.
+ * Add --billed-before 2023-06-01 to mark rows older than that date as billed when their sheet has no billing column.
  */
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { guessClientName, parseWorkbook, type ParsedEntry } from '../src/lib/excel/importWorkbook'
+import { applyBilledBefore, guessClientName, parseWorkbook, type ParsedEntry } from '../src/lib/excel/importWorkbook'
 import { buildMasterWorkbook } from '../src/lib/excel/exportMaster'
 import type { Backup } from '../src/lib/backup'
 import type { Client, Project, TimeEntry } from '../src/db/types'
@@ -27,13 +28,15 @@ function parseArgs(argv: string[]) {
   let out = 'Master_time_tracking.xlsx'
   let json: string | undefined
   let defaultRate = 0
+  let billedBefore: string | undefined
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--out') out = argv[++i]
     else if (a === '--json') json = argv[++i]
     else if (a === '--rate') defaultRate = Number(argv[++i])
+    else if (a === '--billed-before') billedBefore = argv[++i]
     else if (a === '--help' || a === '-h') {
-      console.log('usage: merge-excel [--out Master.xlsx] [--json backup.json] [--rate 50] file.xlsx[=Client[:rate]] ...')
+      console.log('usage: merge-excel [--out Master.xlsx] [--json backup.json] [--rate 50] [--billed-before YYYY-MM-DD] file.xlsx[=Client[:rate]] ...')
       process.exit(0)
     } else {
       const [path, spec = ''] = a.split('=')
@@ -42,7 +45,8 @@ function parseArgs(argv: string[]) {
     }
   }
   if (!inputs.length) throw new Error('no input files given (use --help)')
-  return { inputs, out, json }
+  if (billedBefore && !/^\d{4}-\d{2}-\d{2}$/.test(billedBefore)) throw new Error('--billed-before expects YYYY-MM-DD')
+  return { inputs, out, json, billedBefore }
 }
 
 export function toMasterData(parsed: ParsedEntry[]): { entries: TimeEntry[]; clients: Client[]; projects: Project[] } {
@@ -98,7 +102,7 @@ export function toMasterData(parsed: ParsedEntry[]): { entries: TimeEntry[]; cli
 }
 
 async function main() {
-  const { inputs, out, json } = parseArgs(process.argv.slice(2))
+  const { inputs, out, json, billedBefore } = parseArgs(process.argv.slice(2))
   const all: ParsedEntry[] = []
   for (const input of inputs) {
     const buf = await readFile(input.path)
@@ -106,6 +110,10 @@ async function main() {
     console.log(`${input.path} → client "${input.client}": ${result.entries.length} entries from ${result.sheets.filter((s) => s.imported).length} sheets`)
     for (const s of result.sheets) if (s.reason && s.reason !== 'skipped by user') console.log(`  - sheet "${s.name}" ignored: ${s.reason}`)
     for (const w of result.warnings) console.log(`  ! ${w}`)
+    if (billedBefore) {
+      const n = applyBilledBefore(result.entries, billedBefore)
+      if (n) console.log(`  marked ${n} rows before ${billedBefore} as billed (sheets without a billing column)`)
+    }
     all.push(...result.entries)
   }
   const data = toMasterData(all)

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { guessClientName, parseBilled, parseWorkbook, type ParseResult } from '../../src/lib/excel/importWorkbook'
+import { applyBilledBefore, guessClientName, parseBilled, parseWorkbook, type ParseResult } from '../../src/lib/excel/importWorkbook'
 import { parseDateString, rateFromFormula } from '../../src/lib/excel/cells'
 import { buildFixtureWorkbook } from './fixtures'
 
@@ -60,6 +60,16 @@ describe('Excel import', () => {
     expect(lv[0]).toMatchObject({ project: 'Locitech', category: 'Izpēte', hourlyRate: 50, isBilled: true, invoiceDate: '2023-06-30', invoiceRef: 'Jūnijs 2023', comments: 'Sapulce' })
     expect(lv[1]).toMatchObject({ project: 'Fazer', isBilled: false, billable: false })
     expect(lv[2]).toMatchObject({ isBilled: false, billable: undefined })
+  })
+
+  it('can mark old rows from sheets without a billing column as billed', async () => {
+    const fresh = await parseWorkbook(await buildFixtureWorkbook(), { clientName: 'X', defaultRate: 0 })
+    expect(fresh.entries.filter((e) => e.hasBillingInfo).map((e) => e.sheet)).toEqual(['Support', 'Support', 'Support', 'Uzskaite', 'Uzskaite', 'Uzskaite'])
+    const n = applyBilledBefore(fresh.entries, '2019-01-03')
+    expect(n).toBe(6) // 4 October rows + 2 Jan 2019 rows dated 2019-01-02
+    expect(fresh.entries.filter((e) => e.sheet === 'October').every((e) => e.isBilled && !e.invoiceDate)).toBe(true)
+    expect(fresh.entries.filter((e) => e.sheet === 'Jan 2019' && e.date === '2019-01-03').every((e) => !e.isBilled)).toBe(true)
+    expect(fresh.entries.filter((e) => e.sheet === 'Uzskaite')[2].isBilled).toBe(false) // has billing column, untouched
   })
 
   it('takes the rate from a money formula placed under the hours header', () => {
