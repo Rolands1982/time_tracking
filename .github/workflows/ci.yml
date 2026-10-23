@@ -41,9 +41,13 @@ jobs:
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
-      - name: Configure GitHub Pages (creates the site if it does not exist yet)
+      # The workflow token may not create the Pages site itself ("Resource not accessible by
+      # integration"); the site has to be enabled once under Settings → Pages → Source: GitHub Actions.
+      # Keep the step so it validates the setup, but never fail the build on it.
+      - name: Configure GitHub Pages
         if: github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
+        continue-on-error: true
         with:
           enablement: true
       - uses: actions/upload-pages-artifact@v3
