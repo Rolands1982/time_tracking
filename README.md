@@ -64,9 +64,9 @@ in the app works too.
    `clients`, `projects` and `entries` tables with row level security, plus the `entries_report` view.
 3. *Authentication → Providers*: keep *Email* enabled. Optionally turn off *Confirm email* for a single-user setup.
 4. Copy the *Project URL* and the *anon public* key from *Project settings → API*.
-5. Either paste both into the app (*Data → Cloud sync*) on each device, or set them once as repository variables
-   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (*Settings → Secrets and variables → Actions → Variables*) so the
-   published app has them built in.
+5. Put both into `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) so the published app has them built in. The
+   publishable key is safe to commit: it only identifies the project, access is governed by sign-in and row level
+   security. A different project can still be entered per device under *Data → Cloud sync*.
 6. In the app create the account (e-mail + password), sign in, and press *Sync now*. Restore the historical backup on
    one device before or after; it is pushed on the next sync.
 
