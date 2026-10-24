@@ -26,3 +26,8 @@ dist-ssr
 # Test output
 playwright-report
 test-results
+# Private data: backups and exported master files stay out of the public repository.
+backups/
+data/
+Master*.xlsx
+time-tracking-backup*.json
