@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB, getSettings } from '../../src/db/schema'
 import { addEntry, deleteEntry, findOrCreateClient, findOrCreateProject, setBilled, updateEntry } from '../../src/db/repo'
 import { SyncEngine } from '../../src/sync/engine'
-import type { Remote, RemoteRow } from '../../src/sync/remote'
+import { SupabaseRemote, type Remote, type RemoteRow } from '../../src/sync/remote'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
 import { findDuplicates, removeDuplicates } from '../../src/db/repo'
@@ -233,5 +233,31 @@ describe('push and pull between two devices', () => {
     expect(await b.entries.count()).toBe(1)
     expect(await b.projects.count()).toBe(1)
     expect(await findDuplicates(b)).toEqual({ entries: 0, projects: 0 })
+  })
+})
+
+describe('Supabase remote', () => {
+  it('marks deletions in batches so the request URL stays short', async () => {
+    const batches: string[][] = []
+    const fake = {
+      from: () => ({
+        update: () => ({
+          in: async (_col: string, ids: string[]) => {
+            batches.push(ids)
+            return { error: null }
+          },
+        }),
+      }),
+    }
+    const ids = Array.from({ length: 3672 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`)
+    await new SupabaseRemote(fake as never).markDeleted('entries', ids)
+    expect(batches.length).toBe(37)
+    expect(batches.every((b) => b.length <= 100)).toBe(true)
+    expect(batches.flat()).toEqual(ids)
+    expect(Math.max(...batches.map((b) => b.join(',').length))).toBeLessThan(4000)
+
+    batches.length = 0
+    await new SupabaseRemote(fake as never).markDeleted('entries', [])
+    expect(batches).toEqual([])
   })
 })
