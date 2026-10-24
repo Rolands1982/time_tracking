@@ -1,46 +1,25 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { Link } from 'react-router-dom'
+import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
 import { groupBy, setBilled, totals } from '../db/repo'
 import { db } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
-import { addMonths, formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../lib/time'
-
-type Period = 'month' | 'quarter' | 'year' | 'all' | 'custom'
-
-function periodRange(period: Period, anchor: string, custom: { from: string; to: string }): { from?: string; to?: string } {
-  const [y, m] = anchor.split('-').map(Number)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const lastDay = (yy: number, mm: number) => new Date(yy, mm, 0).getDate()
-  switch (period) {
-    case 'month':
-      return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(lastDay(y, m))}` }
-    case 'quarter': {
-      const q0 = Math.floor((m - 1) / 3) * 3 + 1
-      return { from: `${y}-${pad(q0)}-01`, to: `${y}-${pad(q0 + 2)}-${pad(lastDay(y, q0 + 2))}` }
-    }
-    case 'year':
-      return { from: `${y}-01-01`, to: `${y}-12-31` }
-    case 'custom':
-      return { from: custom.from || undefined, to: custom.to || undefined }
-    default:
-      return {}
-  }
-}
+import { periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
+import { formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../lib/time'
 
 export default function ReportsPage() {
-  const [period, setPeriod] = useState<Period>('month')
-  const [anchor, setAnchor] = useState(() => todayIso().slice(0, 7))
-  const [custom, setCustom] = useState({ from: '', to: '' })
+  const [period, setPeriod] = useState<PeriodState>(() => ({ period: 'month', anchor: todayIso().slice(0, 7), custom: { from: '', to: '' } }))
   const [clientId, setClientId] = useState<number | undefined>()
   const [invoiceDate, setInvoiceDate] = useState(todayIso())
   const { clients, projects, clientName, projectName, clientById } = useLookups()
   const settings = useSettings()
   const toast = useToast()
 
-  const range = periodRange(period, anchor, custom)
+  const range = periodRange(period)
   const entries = useLiveQuery(async () => {
     const rows =
       range.from || range.to
@@ -58,8 +37,7 @@ export default function ReportsPage() {
   const byMonth = useMemo(() => groupBy(filtered, (e) => monthKey(e.date)), [filtered])
   const unbilledByClient = useMemo(() => groupBy(filtered.filter((e) => !e.isBilled), (e) => e.clientId), [filtered])
 
-  const periodLabel =
-    period === 'month' ? monthLabel(anchor) : period === 'quarter' ? `Q${Math.floor((Number(anchor.slice(5)) - 1) / 3) + 1} ${anchor.slice(0, 4)}` : period === 'year' ? anchor.slice(0, 4) : period === 'all' ? 'All time' : `${custom.from || '…'} – ${custom.to || '…'}`
+  const periodLabel = labelFor(period)
 
   const markBilled = async (cid: number) => {
     const ids = (unbilledByClient.get(cid) ?? []).map((e) => e.id!)
@@ -90,36 +68,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="card stack">
-        <div className="segmented">
-          {(['month', 'quarter', 'year', 'all', 'custom'] as Period[]).map((p) => (
-            <button key={p} className={period === p ? 'active' : ''} onClick={() => setPeriod(p)}>
-              {p[0].toUpperCase() + p.slice(1)}
-            </button>
-          ))}
-        </div>
-        {(period === 'month' || period === 'quarter' || period === 'year') && (
-          <div className="month-nav">
-            <button className="btn" onClick={() => setAnchor((a) => addMonths(a, period === 'month' ? -1 : period === 'quarter' ? -3 : -12))} aria-label="Previous period">
-              ‹
-            </button>
-            <strong>{periodLabel}</strong>
-            <button className="btn" onClick={() => setAnchor((a) => addMonths(a, period === 'month' ? 1 : period === 'quarter' ? 3 : 12))} aria-label="Next period">
-              ›
-            </button>
-          </div>
-        )}
-        {period === 'custom' && (
-          <div className="grid-2">
-            <label className="field">
-              <span>From</span>
-              <input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} />
-            </label>
-            <label className="field">
-              <span>To</span>
-              <input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} />
-            </label>
-          </div>
-        )}
+        <PeriodPicker value={period} onChange={setPeriod} />
         <select value={clientId ?? ''} onChange={(e) => setClientId(e.target.value ? Number(e.target.value) : undefined)} aria-label="Client">
           <option value="">All clients</option>
           {clients.map((c) => (
@@ -143,6 +92,9 @@ export default function ReportsPage() {
             <div className="value">{formatMoney(t.unbilledAmount, currency)}</div>
           </div>
         </div>
+        <Link className="btn block" to={{ pathname: '/summary', search: new URLSearchParams({ ...periodToParams(period), ...(clientId != null ? { client: String(clientId) } : {}) }).toString() }}>
+          Customer summary (Excel / PDF)
+        </Link>
       </div>
 
       <h2>Open (not yet billed)</h2>

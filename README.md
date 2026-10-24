@@ -21,6 +21,9 @@ and it behaves like a native app, including offline.
 - **Reports**: month / quarter / year / custom range, totals per client, project and month, open (not yet billed)
   amounts per client with a one-tap *Mark billed* that stamps an invoice date. Export an Excel statement for a
   client and period.
+- **Customer summary**: pick a client, a period (month / quarter / year / all / custom range) and which entries to
+  include (all, not yet billed, billed); the app shows total hours, amount and every entry and exports the same as
+  an Excel sheet or a PDF (pdfmake with the Roboto font, loaded on demand), ready to send to the customer.
 - **Excel import** of the existing workbooks, in English or Latvian (Date / From / Till / Total hours / Earned /
   Project / What is done? / Category / When billed?, or Datums / No / Līdz / Stundas kopā / Summa / Projekts /
   Projekta stadija / Rēķins). Handles dates carried down from the row above, `24:00` end times, the hourly rate
@@ -90,7 +93,7 @@ to `/` when hosting at a domain root.
 ```
 src/db        Dexie (IndexedDB) schema, types, repository functions (entries, timer, billing, reporting)
 src/lib       pure helpers: time/money, Excel import & master-file export, JSON backup
-src/pages     Timer, Entries, Entry form, Reports, Clients, Data (import/export/settings)
+src/pages     Timer, Entries, Entry form, Reports, Customer summary, Clients, Data (import/export/settings)
 scripts       merge-excel.ts command-line consolidation of old workbooks
 tests/unit    vitest tests (importer against a synthetic workbook in the old format, DB logic, export round trip)
 tests/e2e     Playwright smoke test on a phone-sized viewport

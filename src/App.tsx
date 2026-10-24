@@ -6,6 +6,7 @@ import DataPage from './pages/DataPage'
 import EntriesPage from './pages/EntriesPage'
 import EntryFormPage from './pages/EntryFormPage'
 import ReportsPage from './pages/ReportsPage'
+import SummaryPage from './pages/SummaryPage'
 import TimerPage from './pages/TimerPage'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/entries/new" element={<EntryFormPage />} />
             <Route path="/entries/:id" element={<EntryFormPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/summary" element={<SummaryPage />} />
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/data" element={<DataPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

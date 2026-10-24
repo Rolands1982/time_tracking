@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -94,4 +95,20 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export master Excel file' }).click()
   expect((await download).suggestedFilename()).toMatch(/^Master_time_tracking_\d{4}-\d{2}-\d{2}\.xlsx$/)
+
+  // Customer summary for one client and period, exported as Excel and as PDF.
+  await page.getByRole('link', { name: 'Reports' }).click()
+  await page.getByRole('button', { name: 'All' }).click()
+  await page.getByRole('link', { name: 'Customer summary (Excel / PDF)' }).click()
+  await expect(page.getByRole('heading', { name: 'Customer summary' })).toBeVisible()
+  await page.getByLabel('Client').selectOption({ label: 'Polystylex' })
+  await expect(page.getByTestId('summary-hours')).toHaveText(/^\d+\.\d\d$/)
+  const xlsx = page.waitForEvent('download')
+  await page.getByTestId('summary-xlsx').click()
+  expect((await xlsx).suggestedFilename()).toBe('Summary_Polystylex_all.xlsx')
+  const pdf = page.waitForEvent('download')
+  await page.getByTestId('summary-pdf').click()
+  const pdfFile = await pdf
+  expect(pdfFile.suggestedFilename()).toBe('Summary_Polystylex_all.pdf')
+  expect((await readFile((await pdfFile.path())!)).subarray(0, 5).toString()).toBe('%PDF-')
 })
