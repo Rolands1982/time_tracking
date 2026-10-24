@@ -10,6 +10,30 @@ import { todayIso } from './time'
 
 export type StatementFilter = 'all' | 'unbilled' | 'billed'
 
+export type StatementColumn = 'date' | 'time' | 'project' | 'category' | 'description' | 'hours' | 'rate' | 'amount' | 'invoice'
+
+/** Every column a summary can show, in document order. */
+export const STATEMENT_COLUMNS: { key: StatementColumn; label: string }[] = [
+  { key: 'date', label: 'Date' },
+  { key: 'time', label: 'Time' },
+  { key: 'project', label: 'Project' },
+  { key: 'category', label: 'Category' },
+  { key: 'description', label: 'Description' },
+  { key: 'hours', label: 'Hours' },
+  { key: 'rate', label: 'Rate' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'invoice', label: 'Invoice' },
+]
+
+export const DEFAULT_COLUMNS: StatementColumn[] = ['date', 'time', 'project', 'description', 'hours', 'rate', 'amount', 'invoice']
+
+/** Keep only known keys, in document order; falls back to the default set when nothing is left. */
+export function normalizeColumns(keys: readonly string[] | undefined): StatementColumn[] {
+  const wanted = new Set(keys ?? DEFAULT_COLUMNS)
+  const cols = STATEMENT_COLUMNS.map((c) => c.key).filter((k) => wanted.has(k))
+  return cols.length ? cols : [...DEFAULT_COLUMNS]
+}
+
 export interface StatementRow {
   date: string
   startTime: string
@@ -44,6 +68,7 @@ export interface Statement {
   to?: string
   periodLabel: string
   filter: StatementFilter
+  columns: StatementColumn[]
   /** ISO date the document was produced. */
   generatedAt: string
   rows: StatementRow[]
@@ -65,12 +90,13 @@ export interface StatementInput {
   from?: string
   to?: string
   filter?: StatementFilter
+  columns?: readonly string[]
   generatedAt?: string
 }
 
 export const FILTER_LABELS: Record<StatementFilter, string> = { all: 'All entries', unbilled: 'Not yet billed', billed: 'Billed' }
 
-export function buildStatement({ client, entries, projects, from, to, filter = 'all', generatedAt = todayIso() }: StatementInput): Statement {
+export function buildStatement({ client, entries, projects, from, to, filter = 'all', columns, generatedAt = todayIso() }: StatementInput): Statement {
   const projectName = new Map(projects.map((p) => [p.id!, p.name]))
   const selected = entries
     .filter((e) => e.clientId === client.id)
@@ -107,6 +133,7 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
     to,
     periodLabel: rangeLabel({ from, to }),
     filter,
+    columns: normalizeColumns(columns),
     generatedAt,
     rows,
     count: 0,
@@ -137,6 +164,18 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
   st.amount = Math.round(st.amount * 100) / 100
   st.byProject = [...groups.values()].sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name))
   return st
+}
+
+/** Description cell: the category is folded into it unless it has a column of its own. */
+export function describe(r: StatementRow, columns: readonly StatementColumn[]): string {
+  return columns.includes('category') ? r.comments : [r.category, r.comments].filter(Boolean).join(': ')
+}
+
+/** Invoice cell: reference, else invoice date, else status. */
+export function invoiceText(r: StatementRow, formatDate: (iso: string) => string): string {
+  if (!r.billable) return 'non-billable'
+  if (!r.isBilled) return 'open'
+  return r.invoiceRef ?? (r.invoiceDate ? formatDate(r.invoiceDate) : 'billed')
 }
 
 export function hours(min: number): number {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import ExcelJS from 'exceljs'
 import pdfMake from 'pdfmake'
 import type { Client, Project, TimeEntry } from '../../src/db/types'
-import { buildStatement, statementFileName } from '../../src/lib/statement'
+import { buildStatement, DEFAULT_COLUMNS, normalizeColumns, statementFileName } from '../../src/lib/statement'
 import { buildStatementWorkbook } from '../../src/lib/excel/exportStatement'
 import { statementDocDefinition } from '../../src/lib/pdf/statementPdf'
 import { periodFromParams, periodLabel, periodRange, periodToParams, rangeLabel } from '../../src/lib/period'
@@ -68,6 +68,30 @@ describe('customer summary', () => {
     expect(buildStatement({ client: other, entries, projects }).count).toBe(1)
   })
 
+  it('selects columns in document order and falls back to the default set', () => {
+    expect(normalizeColumns(undefined)).toEqual(DEFAULT_COLUMNS)
+    expect(normalizeColumns(['amount', 'date', 'bogus', 'hours'])).toEqual(['date', 'hours', 'amount'])
+    expect(normalizeColumns([])).toEqual(DEFAULT_COLUMNS)
+    expect(buildStatement({ client, entries, projects }).columns).toEqual(DEFAULT_COLUMNS)
+  })
+
+  it('renders only the chosen columns, in Excel and in the PDF', async () => {
+    const st = buildStatement({ client, entries, projects, from: '2026-03-01', to: '2026-03-31', columns: ['date', 'category', 'description', 'hours', 'amount'], generatedAt: '2026-04-02' })
+    const read = new ExcelJS.Workbook()
+    await read.xlsx.load((await buildStatementWorkbook(st).xlsx.writeBuffer()) as never)
+    const ws = read.getWorksheet('Summary')!
+    expect((ws.getRow(10).values as unknown[]).slice(1)).toEqual(['Date', 'Category', 'Description', 'Hours', 'Amount'])
+    expect(ws.getRow(11).getCell(3).value).toBe('Kļūda')
+    expect((ws.getRow(15).getCell(5).value as { formula: string }).formula).toBe('SUBTOTAL(9,E11:E14)')
+    expect(ws.getRow(15).getCell(4).value).toMatchObject({ formula: 'SUBTOTAL(9,D11:D14)' })
+
+    const def = statementDocDefinition(st)
+    const table = (def.content as { table?: { body: { text: string }[][]; widths: unknown[] } }[]).find((c) => c.table && c.table.body.length > 2)!.table!
+    expect(table.body[0].map((c) => c.text)).toEqual(['Date', 'Category', 'Description', 'Hours', 'Amount'])
+    expect(table.widths).toHaveLength(5)
+    expect(table.body[table.body.length - 1].map((c) => c.text)).toEqual(['Total', '', '', '3.50', '210.00 EUR'])
+  })
+
   it('writes an Excel workbook with the totals in the header and every entry', async () => {
     const st = buildStatement({ client, entries, projects, from: '2026-03-01', to: '2026-03-31', generatedAt: '2026-04-02' })
     const wb = buildStatementWorkbook(st)
@@ -81,13 +105,13 @@ describe('customer summary', () => {
     expect(ws.getCell('D6').value).toBe(210)
     expect(ws.getCell('D7').value).toBe(3)
     const header = ws.getRow(10).values as unknown[]
-    expect(header.slice(1)).toEqual(['Date', 'Start', 'End', 'Hours', 'Project', 'Description', 'Rate', 'Amount', 'Invoice'])
-    expect(ws.getRow(11).getCell(6).value).toBe('Kļūda')
-    expect(ws.getRow(11).getCell(9).value).toBe('Marts 2026')
-    expect(ws.getRow(14).getCell(9).value).toBe('non-billable')
+    expect(header.slice(1)).toEqual(['Date', 'Time', 'Project', 'Description', 'Hours', 'Rate', 'Amount', 'Invoice'])
+    expect(ws.getRow(11).getCell(4).value).toBe('Kļūda')
+    expect(ws.getRow(11).getCell(8).value).toBe('Marts 2026')
+    expect(ws.getRow(14).getCell(8).value).toBe('non-billable')
     const total = ws.getRow(15)
     expect(total.getCell(1).value).toBe('Total')
-    expect((total.getCell(8).value as { formula: string }).formula).toBe('SUBTOTAL(9,H11:H14)')
+    expect((total.getCell(7).value as { formula: string }).formula).toBe('SUBTOTAL(9,G11:G14)')
     expect(ws.getCell('A17').value).toBe('By project')
   })
 

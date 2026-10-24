@@ -3,7 +3,7 @@
  * Latvian and other Latin Extended characters render).
  */
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces'
-import { FILTER_LABELS, hours, type Statement } from '../statement'
+import { describe, FILTER_LABELS, hours, invoiceText, type Statement, type StatementColumn, type StatementRow } from '../statement'
 import { formatDate } from '../period'
 
 const GREY = '#6b7280'
@@ -20,32 +20,36 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
   const right = { alignment: 'right' as const }
   const head = (text: string, align?: 'right') => ({ text, style: 'th', ...(align ? right : {}) })
 
-  const body: TableCell[][] = [
-    [head('Date'), head('Time'), head('Project'), head('Description'), head('Hours', 'right'), head('Rate', 'right'), head('Amount', 'right'), head('Invoice')],
-  ]
+  type Spec = { header: string; width: string | number; align?: 'right'; cell: (r: StatementRow) => string }
+  const specs: Record<StatementColumn, Spec> = {
+    date: { header: 'Date', width: 52, cell: (r) => formatDate(r.date) },
+    time: { header: 'Time', width: 58, cell: (r) => `${r.startTime}–${r.endTime}` },
+    project: { header: 'Project', width: 'auto', cell: (r) => r.project },
+    category: { header: 'Category', width: 'auto', cell: (r) => r.category ?? '' },
+    description: { header: 'Description', width: '*', cell: (r) => describe(r, st.columns) },
+    hours: { header: 'Hours', width: 34, align: 'right', cell: (r) => num(hours(r.minutes)) },
+    rate: { header: 'Rate', width: 34, align: 'right', cell: (r) => (r.billable ? num(r.rate) : '') },
+    amount: { header: 'Amount', width: 50, align: 'right', cell: (r) => (r.billable ? num(r.amount) : '–') },
+    invoice: { header: 'Invoice', width: 'auto', cell: (r) => invoiceText(r, formatDate) },
+  }
+  const cols = st.columns.map((key) => ({ key, ...specs[key] }))
+  // Without a stretching column the table would hug its content; let the last text column grow.
+  if (!cols.some((c) => c.width === '*')) {
+    const grow = cols.find((c) => c.key === 'project' || c.key === 'category' || c.key === 'invoice') ?? cols[cols.length - 1]
+    grow.width = '*'
+  }
+
+  const body: TableCell[][] = [cols.map((c) => head(c.header, c.align))]
   for (const r of st.rows) {
     const muted = r.billable ? {} : { color: GREY, italics: true }
-    body.push([
-      { text: formatDate(r.date), ...muted },
-      { text: `${r.startTime}–${r.endTime}`, ...muted },
-      { text: r.project, ...muted },
-      { text: [r.category, r.comments].filter(Boolean).join(': '), ...muted },
-      { text: num(hours(r.minutes)), ...right, ...muted },
-      { text: r.billable ? num(r.rate) : '', ...right, ...muted },
-      { text: r.billable ? num(r.amount) : '–', ...right, ...muted },
-      { text: !r.billable ? 'non-billable' : r.isBilled ? (r.invoiceRef ?? (r.invoiceDate ? formatDate(r.invoiceDate) : 'billed')) : 'open', ...muted },
-    ])
+    body.push(cols.map((c) => ({ text: c.cell(r), ...(c.align ? right : {}), ...muted })))
   }
-  body.push([
-    { text: 'Total', style: 'total', colSpan: 4 },
-    {},
-    {},
-    {},
-    { text: num(hours(st.minutes)), style: 'total', ...right },
-    { text: '', style: 'total' },
-    { text: money(st.amount, st.currency), style: 'total', ...right },
-    { text: '', style: 'total' },
-  ])
+  body.push(
+    cols.map((c, i) => {
+      const text = i === 0 ? 'Total' : c.key === 'hours' ? num(hours(st.minutes)) : c.key === 'amount' ? money(st.amount, st.currency) : ''
+      return { text, style: 'total', ...(c.align ? right : {}) }
+    }),
+  )
 
   const content: Content[] = [
     { text: 'Time summary', style: 'eyebrow' },
@@ -67,7 +71,7 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
       margin: [0, 0, 0, 16],
     },
     {
-      table: { headerRows: 1, widths: [52, 58, 'auto', '*', 34, 34, 50, 'auto'], body, dontBreakRows: true },
+      table: { headerRows: 1, widths: cols.map((c) => c.width), body, dontBreakRows: true },
       layout: {
         hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === 1 || i >= node.table.body.length - 1 ? 0.8 : 0.3),
         vLineWidth: () => 0,
