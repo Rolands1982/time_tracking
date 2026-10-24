@@ -53,5 +53,10 @@ export async function buildFixtureWorkbook(): Promise<Uint8Array> {
   s6.addRow(['Date', 'From ', 'Till', null, 'Total hours', 'What is done?'])
   s6.addRow([d(2026, 10, 7), t(11), t(12), { formula: '(C2-B2)*24', result: 1 }, { formula: '(C2-B2)*24*80', result: 80 }, 'Power Automate'])
 
+  // Later engagement layout: "Amount (EUR)" and "Job description" headers, From/To, helper Gads/Mēnesis columns.
+  const s7 = wb.addWorksheet('Details')
+  s7.addRow(['Date', 'Gads', 'Mēnesis', 'From', 'To', 'Total hours', 'Amount (EUR)', 'Job description', 'Project'])
+  s7.addRow([d(2024, 3, 22), null, null, t(17), t(17, 30), { formula: 'IF(ISBLANK(D2), "",(E2-D2)*24)', result: 0.5 }, { formula: 'IF(ISBLANK(D2),"",F2*70)', result: 35 }, 'Initial meeting', 'POC'])
+
   return new Uint8Array((await wb.xlsx.writeBuffer()) as ArrayBuffer)
 }

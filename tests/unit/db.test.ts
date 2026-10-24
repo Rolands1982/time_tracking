@@ -124,18 +124,18 @@ describe('import → database → master file → backup', () => {
   it('imports once, skips duplicates on re-import, exports and restores', async () => {
     const parsed = await parseWorkbook(await buildFixtureWorkbook(), { clientName: 'Polystylex', defaultRate: 0 })
     const first = await importEntries(parsed.entries, db)
-    expect(first).toMatchObject({ added: 14, duplicates: 1, clients: ['Polystylex'] })
-    expect(await db.projects.count()).toBe(4)
+    expect(first).toMatchObject({ added: 15, duplicates: 1, clients: ['Polystylex'] })
+    expect(await db.projects.count()).toBe(5)
     expect((await db.clients.toArray())[0].defaultRate).toBe(60)
 
     const second = await importEntries(parsed.entries, db)
-    expect(second).toMatchObject({ added: 0, duplicates: 15 })
+    expect(second).toMatchObject({ added: 0, duplicates: 16 })
 
     const data = { entries: await db.entries.toArray(), clients: await db.clients.toArray(), projects: await db.projects.toArray() }
     const wb = buildMasterWorkbook(data)
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Entries', 'By month', 'By client', 'By client & project', 'By invoice', 'Clients'])
     const entriesSheet = wb.getWorksheet('Entries')!
-    expect(entriesSheet.rowCount).toBe(1 + 14 + 1)
+    expect(entriesSheet.rowCount).toBe(1 + 15 + 1)
     // midnight entry: end stored as 1.0 (24:00) so (End-Start)*24 works in Excel
     const midnightRow = entriesSheet.getRow(4)
     expect(midnightRow.getCell(2).value).toBeCloseTo(21.5 / 24, 9)
@@ -145,18 +145,18 @@ describe('import → database → master file → backup', () => {
     const buf = new Uint8Array((await wb.xlsx.writeBuffer()) as ArrayBuffer)
     const again = await parseWorkbook(buf, { clientName: 'ignored', defaultRate: 0 })
     const entriesOnly = again.entries.filter((e) => e.sheet === 'Entries')
-    expect(entriesOnly).toHaveLength(14)
+    expect(entriesOnly).toHaveLength(15)
     expect(entriesOnly.every((e) => e.client === 'Polystylex')).toBe(true)
     expect(entriesOnly.reduce((s, e) => s + e.durationMin, 0)).toBe(data.entries.reduce((s, e) => s + e.durationMin, 0))
     expect(entriesOnly.filter((e) => e.isBilled)).toHaveLength(3)
     expect(entriesOnly.filter((e) => e.billable === false)).toHaveLength(1)
     expect(entriesOnly.find((e) => e.invoiceRef === 'Jūnijs 2023')).toBeTruthy()
-    expect(await importEntries(entriesOnly, db)).toMatchObject({ added: 0, duplicates: 14 })
+    expect(await importEntries(entriesOnly, db)).toMatchObject({ added: 0, duplicates: 15 })
 
     const backup = await createBackup(db)
     const db2 = new TimeTrackingDB('restore-target')
     await restoreBackup(backup, db2)
-    expect(await db2.entries.count()).toBe(14)
+    expect(await db2.entries.count()).toBe(15)
     expect(await db2.clients.count()).toBe(1)
   })
 

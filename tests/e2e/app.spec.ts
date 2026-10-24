@@ -72,15 +72,15 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByLabel('Excel file').setInputFiles(fixturePath)
   await expect(page.getByLabel('Client for this file')).toHaveValue('Polystylex')
   await page.getByRole('button', { name: 'Analyse file' }).click()
-  await expect(page.getByText(/15 entries found in 5 sheets/)).toBeVisible()
+  await expect(page.getByText(/16 entries found in 6 sheets/)).toBeVisible()
   await page.getByTestId('confirm-import').click()
-  await expect(page.getByText(/Imported 14 entries/).first()).toBeVisible()
+  await expect(page.getByText(/Imported 15 entries/).first()).toBeVisible()
 
   // Re-importing the same file adds nothing.
   await page.getByLabel('Excel file').setInputFiles(fixturePath)
   await page.getByRole('button', { name: 'Analyse file' }).click()
   await page.getByTestId('confirm-import').click()
-  await expect(page.getByText(/Imported 0 entries \(15 duplicates skipped\)/)).toBeVisible()
+  await expect(page.getByText(/Imported 0 entries \(16 duplicates skipped\)/)).toBeVisible()
 
   // Reports: all-time view shows both clients and an open balance for Polystylex.
   await page.getByRole('link', { name: 'Reports' }).click()

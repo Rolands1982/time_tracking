@@ -93,9 +93,9 @@ const HEADER_ALIASES: Record<ColumnKey, string[]> = {
   start: ['from', 'start', 'start time', 'no', 'sākums'],
   end: ['till', 'to', 'end', 'end time', 'until', 'līdz', 'beigas'],
   hours: ['total hours', 'hours', 'duration', 'stundas', 'stundas kopā'],
-  earned: ['earned', 'amount', 'total', 'sum', 'summa', 'summa (eur)', 'summa eur'],
+  earned: ['earned', 'amount', 'amount (eur)', 'amount eur', 'total', 'sum', 'summa', 'summa (eur)', 'summa eur'],
   project: ['project', 'projekts'],
-  comments: ['what is done?', 'what is done', 'comments', 'comment', 'description', 'task', 'notes', 'apraksts', 'kas tika izdarīts'],
+  comments: ['what is done?', 'what is done', 'comments', 'comment', 'description', 'job description', 'task', 'notes', 'apraksts', 'kas tika izdarīts'],
   category: ['category', 'kategorija', 'type', 'projekta stadija', 'stadija'],
   billed: ['when billed?', 'when billed', 'billed', 'is billed', 'invoiced', 'rēķins', 'invoice'],
   invoiceDate: ['invoice date', 'invoiced on', 'rēķina datums'],
@@ -218,6 +218,9 @@ function parseSheet(ws: Worksheet, opts: ImportOptions, warnings: string[]): { e
 
     if (label === 'total' || label.startsWith('total')) break
     if (rowDate) carriedDate = rowDate
+    else if (label && (startMin != null || endMin != null)) {
+      warnings.push(`${ws.name}!${r}: unreadable date "${label}"; used the previous row's date${carriedDate ? ` (${carriedDate})` : ''}`)
+    }
 
     if (startMin == null && endMin == null) continue // empty / formula-only row
     if (startMin == null || endMin == null || !carriedDate) {
