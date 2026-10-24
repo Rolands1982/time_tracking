@@ -87,6 +87,7 @@ export function toMasterData(parsed: ParsedEntry[]): { entries: TimeEntry[]; cli
       invoiceDate: p.invoiceDate,
       invoiceRef: p.invoiceRef,
       billable: p.billable === false ? false : undefined,
+      billedMin: p.billedMin,
       category: p.category,
       source: 'import',
       importKey: p.importKey,

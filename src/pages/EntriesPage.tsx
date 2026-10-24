@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { useLookups, useSettings } from '../db/hooks'
-import { compareEntries, groupBy, isBillable, totals } from '../db/repo'
+import { billedMinutes, compareEntries, groupBy, isBillable, totals } from '../db/repo'
 import { db } from '../db/schema'
 import { addMonths, formatDateLong, formatDuration, formatMoney, monthLabel, todayIso } from '../lib/time'
 
@@ -77,8 +77,9 @@ export default function EntriesPage() {
             <div className="value">{t.count}</div>
           </div>
           <div className="stat">
-            <div className="label">Hours</div>
-            <div className="value">{formatDuration(t.durationMin)}</div>
+            <div className="label">Billed hours</div>
+            <div className="value">{formatDuration(t.billedMin)}</div>
+            {t.billedMin !== t.durationMin && <div className="label">actual {formatDuration(t.durationMin)}</div>}
           </div>
           <div className="stat">
             <div className="label">Amount</div>
@@ -113,7 +114,10 @@ export default function EntriesPage() {
                     </div>
                   </div>
                   <div className="right nowrap">
-                    <div className="mono">{formatDuration(e.durationMin)}</div>
+                    <div className="mono">
+                      {formatDuration(billedMinutes(e))}
+                      {billedMinutes(e) !== e.durationMin && <span className="muted small"> ({formatDuration(e.durationMin)})</span>}
+                    </div>
                     <span className={`badge ${e.isBilled ? 'billed' : isBillable(e) ? 'open' : ''}`}>
                       {e.isBilled ? 'billed' : isBillable(e) ? 'open' : 'non-billable'}
                     </span>

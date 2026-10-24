@@ -60,12 +60,6 @@ export function durationMinutes(startHm: string, endHm: string): number {
   return e - s
 }
 
-/** Round a duration to a multiple of `stepMin` (0 = no rounding). Always rounds up to at least one step. */
-export function roundDuration(min: number, stepMin: number): number {
-  if (!stepMin || stepMin <= 0) return min
-  return Math.max(stepMin, Math.ceil(min / stepMin) * stepMin)
-}
-
 /** Money for an entry: rounded to cents. */
 export function computeAmount(durationMin: number, hourlyRate: number): number {
   return Math.round((durationMin / 60) * hourlyRate * 100) / 100

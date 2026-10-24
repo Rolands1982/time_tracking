@@ -73,6 +73,9 @@ create table if not exists public.entries (
   invoice_date  date,
   invoice_ref   text,
   billable      boolean not null default true,
+  billed_start_time time,
+  billed_end_time   time,
+  billed_min    integer,
   category      text,
   source        text not null default 'manual',
   import_key    text,
@@ -81,6 +84,10 @@ create table if not exists public.entries (
   synced_at     timestamptz not null default now(),
   deleted_at    timestamptz
 );
+-- Columns added after the first release (no-ops on a fresh schema).
+alter table public.entries add column if not exists billed_start_time time;
+alter table public.entries add column if not exists billed_end_time time;
+alter table public.entries add column if not exists billed_min integer;
 create index if not exists entries_user_synced on public.entries (user_id, synced_at);
 create index if not exists entries_user_date on public.entries (user_id, date);
 create index if not exists entries_client on public.entries (client_id);
@@ -113,6 +120,10 @@ select e.id,
        e.end_time,
        e.duration_min,
        round(e.duration_min / 60.0, 2) as hours,
+       e.billed_start_time,
+       e.billed_end_time,
+       coalesce(e.billed_min, e.duration_min) as billed_min,
+       round(coalesce(e.billed_min, e.duration_min) / 60.0, 2) as billed_hours,
        c.name  as client,
        p.name  as project,
        e.category,

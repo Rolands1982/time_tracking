@@ -99,7 +99,7 @@ export const db = new TimeTrackingDB()
 export const DEFAULT_SETTINGS: Settings = {
   id: 'app',
   defaultCurrency: 'EUR',
-  timerRoundingMin: 0,
+  roundingMode: 'billing',
 }
 
 export async function getSettings(database: TimeTrackingDB = db): Promise<Settings> {

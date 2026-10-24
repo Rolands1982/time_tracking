@@ -9,7 +9,6 @@ import {
   isValidIsoDate,
   minutesToHm,
   monthRange,
-  roundDuration,
 } from '../../src/lib/time'
 
 describe('time helpers', () => {
@@ -30,14 +29,6 @@ describe('time helpers', () => {
     expect(durationMinutes('22:30', '00:30')).toBe(120)
     expect(durationMinutes('21:30', '24:00')).toBe(150)
     expect(durationMinutes('10:00', '10:00')).toBe(1440)
-  })
-
-  it('rounds durations up to steps', () => {
-    expect(roundDuration(7, 0)).toBe(7)
-    expect(roundDuration(7, 15)).toBe(15)
-    expect(roundDuration(15, 15)).toBe(15)
-    expect(roundDuration(16, 15)).toBe(30)
-    expect(roundDuration(0, 5)).toBe(5)
   })
 
   it('computes money to cents', () => {

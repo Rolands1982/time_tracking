@@ -49,6 +49,8 @@ export interface ParsedEntry {
   invoiceRef?: string
   /** false when the row is marked as not to be invoiced. */
   billable?: boolean
+  /** Normalised billed minutes when the sheet carries them (master file round trip). */
+  billedMin?: number
   /** True when the sheet has a billing / invoice column at all (old sheets have none). */
   hasBillingInfo: boolean
   sheet: string
@@ -84,6 +86,7 @@ type ColumnKey =
   | 'rate'
   | 'invoiceRef'
   | 'billable'
+  | 'billedHours'
 
 const HEADER_ALIASES: Record<ColumnKey, string[]> = {
   date: ['date', 'datums', 'day'],
@@ -100,6 +103,7 @@ const HEADER_ALIASES: Record<ColumnKey, string[]> = {
   rate: ['rate', 'hourly rate', 'likme'],
   invoiceRef: ['invoice ref', 'invoice reference', 'invoice number', 'invoice no', 'rēķina nr', 'rēķina numurs'],
   billable: ['billable', 'piestādāms'],
+  billedHours: ['billed hours', 'billed minutes'],
 }
 
 const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').replace(/[:*]/g, '').trim()
@@ -287,12 +291,19 @@ function parseSheet(ws: Worksheet, opts: ImportOptions, warnings: string[]): { e
       if (NOT_BILLED.has(flag) || NON_BILLABLE.has(flag)) billed.billable = false
     }
 
+    let billedMin: number | undefined
+    if (c.billedHours != null) {
+      const bh = cellNumber(row.getCell(c.billedHours))
+      if (bh != null && bh > 0) billedMin = Math.round(bh * 60)
+    }
+
     const base = { date: carriedDate, startTime, endTime, client, project, comments }
     entries.push({
       ...base,
       durationMin,
       hourlyRate,
-      amount: computeAmount(durationMin, hourlyRate),
+      amount: computeAmount(billedMin ?? durationMin, hourlyRate),
+      billedMin,
       category,
       isBilled: billed.isBilled,
       invoiceDate: billed.invoiceDate,

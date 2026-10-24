@@ -219,13 +219,10 @@ export default function DataPage() {
             <input value={settings.defaultCurrency} maxLength={3} onChange={(e) => updateSettings({ defaultCurrency: e.target.value.toUpperCase() })} />
           </label>
           <label className="field">
-            <span>Round timer to</span>
-            <select value={settings.timerRoundingMin} onChange={(e) => updateSettings({ timerRoundingMin: Number(e.target.value) })}>
-              <option value={0}>exact minute</option>
-              <option value={5}>5 minutes</option>
-              <option value={10}>10 minutes</option>
-              <option value={15}>15 minutes</option>
-              <option value={30}>30 minutes</option>
+            <span>Rounding for new records</span>
+            <select value={settings.roundingMode ?? 'billing'} onChange={(e) => updateSettings({ roundingMode: e.target.value as 'billing' | 'exact' })}>
+              <option value="billing">Billing rules (10-min start, 15-min steps)</option>
+              <option value="exact">Exact minutes</option>
             </select>
           </label>
         </div>
