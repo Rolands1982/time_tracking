@@ -1,5 +1,5 @@
-import { db, type TimeTrackingDB } from '../db/schema'
-import type { Client, Project, Settings, TimeEntry } from '../db/types'
+import { db, SYNC_TABLES, type TimeTrackingDB } from '../db/schema'
+import type { Client, Project, Settings, SyncTable, TimeEntry, Tombstone } from '../db/types'
 
 export interface Backup {
   app: 'time-tracking'
@@ -32,14 +32,35 @@ export function isBackup(x: unknown): x is Backup {
 }
 
 /**
- * Replace all local data with the backup (ids are preserved so references stay intact).
- * Restored rows are marked as local changes, so they are pushed to the cloud on the next sync;
- * the sync cursors are reset so the cloud copy is pulled again afterwards.
+ * Remember every synced row that is about to be wiped, so the next sync removes it from the
+ * cloud as well. Without this a restore would leave the old copy in the cloud, and it would come
+ * back next to the restored data as a duplicate.
+ */
+async function tombstoneEverything(database: TimeTrackingDB): Promise<void> {
+  const tombstones: Tombstone[] = []
+  for (const table of SYNC_TABLES as readonly SyncTable[]) {
+    const rows = (await database.table(table).toArray()) as { uid?: string }[]
+    for (const r of rows) if (r.uid) tombstones.push({ table, uid: r.uid })
+  }
+  if (tombstones.length) await database.tombstones.bulkAdd(tombstones)
+}
+
+/**
+ * Replace all data with the backup (ids are preserved so references stay intact). The previous
+ * rows are tombstoned and the restored rows marked as local changes, so the next sync replaces
+ * the cloud copy too instead of merging the two. The sync cursors are reset.
  */
 export async function restoreBackup(backup: Backup, database: TimeTrackingDB = db): Promise<void> {
   if (!isBackup(backup)) throw new Error('Not a time-tracking backup file')
   await database.transaction('rw', [database.clients, database.projects, database.entries, database.settings, database.tombstones], async () => {
-    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear(), database.tombstones.clear()])
+    await tombstoneEverything(database)
+    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear()])
+    // Rows of this very backup may already live in the cloud under their uid: never tombstone those.
+    const restoredUids = new Set([...backup.clients, ...(backup.projects ?? []), ...backup.entries].map((r) => r.uid).filter(Boolean))
+    if (restoredUids.size) {
+      const stale = (await database.tombstones.toArray()).filter((t) => restoredUids.has(t.uid))
+      if (stale.length) await database.tombstones.bulkDelete(stale.map((t) => t.id!))
+    }
     const fresh = <T extends { dirty?: 0 | 1 }>(rows: T[]) => rows.map((r) => ({ ...r, dirty: 1 as const }))
     await database.clients.bulkAdd(fresh(backup.clients))
     await database.projects.bulkAdd(fresh(backup.projects ?? []))
@@ -50,9 +71,10 @@ export async function restoreBackup(backup: Backup, database: TimeTrackingDB = d
   })
 }
 
-/** Wipe the local copy only; the cloud data (if any) is left untouched. */
+/** Wipe all data; with cloud sync on, the next sync removes it from the cloud as well. */
 export async function clearAllData(database: TimeTrackingDB = db): Promise<void> {
   await database.transaction('rw', [database.clients, database.projects, database.entries, database.settings, database.tombstones], async () => {
-    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear(), database.tombstones.clear()])
+    await tombstoneEverything(database)
+    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear()])
   })
 }

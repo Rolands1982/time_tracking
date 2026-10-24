@@ -282,6 +282,84 @@ export function totals(entries: TimeEntry[]): Totals {
   return t
 }
 
+// ---------------------------------------------------------------- duplicates
+
+export interface DuplicateReport {
+  entries: number
+  projects: number
+}
+
+/** Key that identifies the same piece of work regardless of which import or device created it. */
+function entryIdentity(e: TimeEntry, projectName: (id?: number) => string): string {
+  return (
+    e.importKey ??
+    [e.date, e.startTime, e.endTime, e.clientId, projectName(e.projectId), e.comments]
+      .map((v) => String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim())
+      .join('|')
+  )
+}
+
+/** Find duplicate entries (same identity) and duplicate projects (same client and name). */
+export async function findDuplicates(database: TimeTrackingDB = db): Promise<DuplicateReport> {
+  const [entries, projects] = await Promise.all([database.entries.toArray(), database.projects.toArray()])
+  const projectName = new Map(projects.map((p) => [p.id!, p.name.toLowerCase()]))
+  const seen = new Set<string>()
+  let dupEntries = 0
+  for (const e of [...entries].sort((a, b) => (a.id ?? 0) - (b.id ?? 0))) {
+    const key = entryIdentity(e, (id) => (id == null ? '' : (projectName.get(id) ?? '')))
+    if (seen.has(key)) dupEntries++
+    else seen.add(key)
+  }
+  const projectKeys = new Set<string>()
+  let dupProjects = 0
+  for (const p of [...projects].sort((a, b) => (a.id ?? 0) - (b.id ?? 0))) {
+    const key = `${p.clientId}:${p.name.toLowerCase().trim()}`
+    if (projectKeys.has(key)) dupProjects++
+    else projectKeys.add(key)
+  }
+  return { entries: dupEntries, projects: dupProjects }
+}
+
+/**
+ * Remove duplicates, keeping the oldest copy (lowest local id). Entries of a duplicate project
+ * are moved to the kept project first. Deletions go through tombstones, so the cloud and the other
+ * devices follow on the next sync.
+ */
+export async function removeDuplicates(database: TimeTrackingDB = db): Promise<DuplicateReport> {
+  const removed: DuplicateReport = { entries: 0, projects: 0 }
+  await database.transaction('rw', [database.entries, database.projects, database.tombstones], async () => {
+    // Projects first so that entry identities use the merged project names.
+    const projects = (await database.projects.toArray()).sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+    const keep = new Map<string, Project>()
+    for (const p of projects) {
+      const key = `${p.clientId}:${p.name.toLowerCase().trim()}`
+      const kept = keep.get(key)
+      if (!kept) {
+        keep.set(key, p)
+        continue
+      }
+      await database.entries.where('projectId').equals(p.id!).modify({ projectId: kept.id })
+      await database.projects.delete(p.id!)
+      if (p.uid) await database.tombstones.add({ table: 'projects', uid: p.uid })
+      removed.projects++
+    }
+    const projectName = new Map((await database.projects.toArray()).map((p) => [p.id!, p.name.toLowerCase()]))
+    const entries = (await database.entries.toArray()).sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+    const seen = new Set<string>()
+    for (const e of entries) {
+      const key = entryIdentity(e, (id) => (id == null ? '' : (projectName.get(id) ?? '')))
+      if (!seen.has(key)) {
+        seen.add(key)
+        continue
+      }
+      await database.entries.delete(e.id!)
+      if (e.uid) await database.tombstones.add({ table: 'entries', uid: e.uid })
+      removed.entries++
+    }
+  })
+  return removed
+}
+
 /** Entries are billable unless explicitly flagged otherwise. */
 export function isBillable(e: Pick<TimeEntry, 'billable'>): boolean {
   return e.billable !== false

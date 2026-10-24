@@ -59,7 +59,9 @@ Conventions that matter:
   rewritten. `settings.roundingMode = 'exact'` stops deriving the columns for new records.
 - Every synced record has `uid` (UUID shared with the cloud) and `dirty`; local numeric `id`s never leave the
   device. Dexie hooks set these; writes made by the sync engine go through `db.remoteTransaction()` to bypass them.
-- Deleting a synced record must go through `db.deleteSynced()` so a tombstone is recorded.
+- Deleting a synced record must go through `db.deleteSynced()` so a tombstone is recorded. Restore and "delete all"
+  tombstone every existing row first, so a restore replaces the cloud copy instead of duplicating it. `Data →
+  Remove duplicates` (`removeDuplicates()`) repairs data that was duplicated anyway.
 - Excel import is header-driven (English and Latvian aliases in `importWorkbook.ts`) and idempotent via
   `importKey`. New sheet layouts get an alias and a fixture sheet plus a test, not a special case in the UI.
 - Heavy libraries (ExcelJS, Supabase client) are imported dynamically; keep the main bundle small.
