@@ -94,7 +94,7 @@ describe('push and pull between two devices', () => {
     const projectB = (await b.projects.get(entryB.projectId!))!
     expect(clientB.name).toBe('Acme')
     expect(projectB.name).toBe('Web')
-    expect(entryB).toMatchObject({ date: '2026-10-20', startTime: '09:00', endTime: '10:30', durationMin: 90, amount: 75, comments: 'first', dirty: 0 })
+    expect(entryB).toMatchObject({ date: '2026-10-20', startTime: '09:00', endTime: '10:30', durationMin: 90, billedStartTime: '09:00', billedEndTime: '10:30', billedMin: 90, amount: 75, comments: 'first', dirty: 0 })
     expect(entryB.uid).toBe((await a.entries.get(id))!.uid)
     expect(entryB.id).not.toBe(id + 1000) // ids are local, only uids are shared
 

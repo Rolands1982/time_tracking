@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import ClientProjectPicker from '../components/ClientProjectPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
-import { cancelTimer, effectiveRate, startTimer, stopTimer, totals, updateTimer } from '../db/repo'
+import { billedMinutes, cancelTimer, effectiveRate, startTimer, stopTimer, timerRecording, totals, updateTimer } from '../db/repo'
 import { db } from '../db/schema'
 import { formatDuration, formatElapsed, formatMoney, todayIso } from '../lib/time'
 
@@ -68,6 +68,9 @@ export default function TimerPage() {
   }
 
   const elapsed = timer ? Math.max(0, now - new Date(timer.startedAt).getTime()) : 0
+  const recording = timer ? timerRecording(new Date(timer.startedAt), new Date(now)) : null
+  const normalize = settings.roundingMode !== 'exact'
+  const previewMin = recording ? (normalize ? recording.billedMin : recording.actualMin) : 0
 
   return (
     <>
@@ -91,9 +94,12 @@ export default function TimerPage() {
               {formatElapsed(elapsed)}
             </div>
             <p className="muted small" style={{ textAlign: 'center' }}>
-              {rate > 0
-                ? `${formatMoney(rate, currency)}/h · ${formatMoney((elapsed / 3_600_000) * rate, currency)} so far`
-                : 'No hourly rate set for this client'}
+              {recording && normalize
+                ? `Billed as ${recording.billedStartTime}–${recording.billedEndTime} · ${formatDuration(recording.billedMin)}${recording.billable ? '' : ' (non-billable)'}`
+                : recording
+                  ? `Recorded as ${formatDuration(recording.actualMin)}`
+                  : ''}
+              {rate > 0 ? ` · ${formatMoney((previewMin / 60) * rate, currency)}` : ' · no hourly rate set for this client'}
             </p>
             <div className="stack">
               <ClientProjectPicker clientId={timer.clientId} projectId={timer.projectId} onChange={(next) => updateTimer(next)} />
@@ -168,7 +174,10 @@ export default function TimerPage() {
                   </div>
                 </div>
                 <div className="right nowrap mono">
-                  <div>{formatDuration(e.durationMin)}</div>
+                  <div>
+                    {formatDuration(billedMinutes(e))}
+                    {billedMinutes(e) !== e.durationMin && <span className="muted small"> ({formatDuration(e.durationMin)})</span>}
+                  </div>
                   <div className="muted small">{formatMoney(e.amount, clientById.get(e.clientId)?.currency)}</div>
                 </div>
               </Link>

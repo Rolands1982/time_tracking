@@ -9,7 +9,13 @@ and it behaves like a native app, including offline.
 - **Entries** with all required fields: date, start time, end time, client, hourly rate, project, comments,
   *is billed*, invoice date, plus an invoice reference, a *billable* flag for work that will never be invoiced,
   and an optional category (e.g. Support / Development, or the project stage).
-- **Timer**: tap *Start*, work, tap *Stop & save*. The timer survives closing the app. Optional rounding (5/10/15/30 min).
+- **Timer**: tap *Start*, work, tap *Stop & save*. The timer survives closing the app.
+- **Billing normalisation**: every record keeps its real minutes, and new records also carry a billed version:
+  the start snapped to the nearest 10 minutes and the time in 15-minute steps (a step counts once 5 minutes into
+  it: 7–19 min → 15, 20–34 → 30, …). Under 7 minutes stays as real minutes and is marked non-billable. Amounts,
+  open balances, statements and the master file use the billed minutes; internal views show both. Historical
+  records are never changed. The entry form offers duration choices and shows what will be billed. Switch the
+  derivation off under *Data → Settings*.
 - **Clients & projects** with default hourly rates (project rate overrides client rate).
 - **Entries screen**: month by month, grouped by day, filter by client / billed status, search in comments.
 - **Reports**: month / quarter / year / custom range, totals per client, project and month, open (not yet billed)

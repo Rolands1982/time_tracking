@@ -5,7 +5,7 @@
  */
 import ExcelJS from 'exceljs'
 import type { Client, Project, TimeEntry } from '../../db/types'
-import { isBillable } from '../../db/repo'
+import { billedMinutes, isBillable } from '../../db/repo'
 import { hmToMinutes, monthKey } from '../time'
 
 export interface MasterData {
@@ -56,6 +56,7 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
     'Start',
     'End',
     'Hours',
+    'Billed hours',
     'Client',
     'Project',
     'Category',
@@ -69,7 +70,7 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
     'Source',
     'ID',
   ])
-  styleHeader(ws, [12, 8, 8, 8, 18, 16, 12, 11, 11, 60, 8, 12, 14, 9, 8, 6])
+  styleHeader(ws, [12, 8, 8, 8, 10, 18, 16, 12, 11, 11, 60, 8, 12, 14, 9, 8, 6])
   entries.forEach((e, i) => {
     const r = i + 2
     const row = ws.addRow([
@@ -77,11 +78,12 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
       excelTime(e.startTime),
       excelTime(e.endTime, e.startTime),
       { formula: `(C${r}-B${r})*24`, result: Math.round((e.durationMin / 60) * 10000) / 10000 },
+      Math.round((billedMinutes(e) / 60) * 10000) / 10000,
       clientName.get(e.clientId) ?? '',
       e.projectId != null ? (projectName.get(e.projectId) ?? '') : '',
       e.category ?? '',
       e.hourlyRate,
-      { formula: `D${r}*H${r}`, result: e.amount },
+      { formula: `E${r}*I${r}`, result: e.amount },
       e.comments,
       e.isBilled ? 'Yes' : 'No',
       e.invoiceDate ? excelDate(e.invoiceDate) : null,
@@ -94,18 +96,20 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
     row.getCell(2).numFmt = 'hh:mm'
     row.getCell(3).numFmt = 'hh:mm'
     row.getCell(4).numFmt = '0.00'
-    row.getCell(8).numFmt = '#,##0.00'
+    row.getCell(5).numFmt = '0.00'
     row.getCell(9).numFmt = '#,##0.00'
-    row.getCell(12).numFmt = 'yyyy-mm-dd'
-    row.getCell(10).alignment = { wrapText: false }
+    row.getCell(10).numFmt = '#,##0.00'
+    row.getCell(13).numFmt = 'yyyy-mm-dd'
+    row.getCell(11).alignment = { wrapText: false }
   })
   const last = entries.length + 1
   if (entries.length) {
-    ws.autoFilter = { from: 'A1', to: `P${last}` }
-    const total = ws.addRow(['Total', null, null, { formula: `SUM(D2:D${last})` }, null, null, null, null, { formula: `SUM(I2:I${last})` }])
+    ws.autoFilter = { from: 'A1', to: `Q${last}` }
+    const total = ws.addRow(['Total', null, null, { formula: `SUM(D2:D${last})` }, { formula: `SUM(E2:E${last})` }, null, null, null, null, { formula: `SUM(J2:J${last})` }])
     total.font = { bold: true }
     total.getCell(4).numFmt = '0.00'
-    total.getCell(9).numFmt = '#,##0.00'
+    total.getCell(5).numFmt = '0.00'
+    total.getCell(10).numFmt = '#,##0.00'
   }
 
   // ------------------------------------------------------------------ Summaries
@@ -116,8 +120,8 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
     sortKeys?: (a: string, b: string) => number,
   ) => {
     const sheet = wb.addWorksheet(name)
-    sheet.addRow([keyLabel, 'Entries', 'Hours', `Amount (${currency})`, 'Billed', 'Unbilled', 'Unbilled hours'])
-    styleHeader(sheet, [26, 9, 10, 14, 14, 14, 14])
+    sheet.addRow([keyLabel, 'Entries', 'Hours', 'Billed hours', `Amount (${currency})`, 'Billed', 'Unbilled', 'Unbilled hours'])
+    styleHeader(sheet, [26, 9, 10, 12, 14, 14, 14, 14])
     const groups = new Map<string, TimeEntry[]>()
     for (const e of entries) {
       const k = keyOf(e)
@@ -127,13 +131,14 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
     for (const k of keys) {
       const g = groups.get(k)!
       const hours = g.reduce((s, e) => s + e.durationMin, 0) / 60
+      const billedHours = g.reduce((s, e) => s + billedMinutes(e), 0) / 60
       const amount = g.reduce((s, e) => s + e.amount, 0)
       const billed = g.filter((e) => e.isBilled).reduce((s, e) => s + e.amount, 0)
-      const unbilledMin = g.filter((e) => !e.isBilled && isBillable(e)).reduce((s, e) => s + e.durationMin, 0)
+      const unbilledMin = g.filter((e) => !e.isBilled && isBillable(e)).reduce((s, e) => s + billedMinutes(e), 0)
       const unbilled = g.filter((e) => !e.isBilled && isBillable(e)).reduce((s, e) => s + e.amount, 0)
-      const row = sheet.addRow([k, g.length, hours, amount, billed, unbilled, unbilledMin / 60])
-      ;[3, 7].forEach((c) => (row.getCell(c).numFmt = '0.00'))
-      ;[4, 5, 6].forEach((c) => (row.getCell(c).numFmt = '#,##0.00'))
+      const row = sheet.addRow([k, g.length, hours, billedHours, amount, billed, unbilled, unbilledMin / 60])
+      ;[3, 4, 8].forEach((c) => (row.getCell(c).numFmt = '0.00'))
+      ;[5, 6, 7].forEach((c) => (row.getCell(c).numFmt = '#,##0.00'))
     }
     if (keys.length) {
       const n = keys.length + 1
@@ -145,10 +150,11 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
         { formula: `SUM(E2:E${n})` },
         { formula: `SUM(F2:F${n})` },
         { formula: `SUM(G2:G${n})` },
+        { formula: `SUM(H2:H${n})` },
       ])
       total.font = { bold: true }
-      ;[3, 7].forEach((c) => (total.getCell(c).numFmt = '0.00'))
-      ;[4, 5, 6].forEach((c) => (total.getCell(c).numFmt = '#,##0.00'))
+      ;[3, 4, 8].forEach((c) => (total.getCell(c).numFmt = '0.00'))
+      ;[5, 6, 7].forEach((c) => (total.getCell(c).numFmt = '#,##0.00'))
     }
   }
   addSummary('By month', 'Month', (e) => monthKey(e.date))

@@ -61,6 +61,13 @@ export interface TimeEntry extends Synced {
   invoiceRef?: string
   /** False for work that will never be invoiced (internal, goodwill). Undefined means billable. */
   billable?: boolean
+  /**
+   * Normalised values for billing (see src/lib/rounding.ts). Absent on records that predate the
+   * billing rules or were saved with normalisation switched off; then the real minutes are billed.
+   */
+  billedStartTime?: string
+  billedEndTime?: string
+  billedMin?: number
   /** Optional free classification, e.g. "Support" / "Development". */
   category?: string
   source: EntrySource
@@ -102,7 +109,9 @@ export interface Settings {
   /** Last used client, pre-selected in forms and the timer. */
   lastClientId?: number
   lastProjectId?: number
-  /** Timer rounding in minutes (0 = exact). */
-  timerRoundingMin: number
+  /** 'billing' (default): 10-minute start marks and 15-minute steps for new records; 'exact': minutes as typed. */
+  roundingMode?: 'billing' | 'exact'
+  /** Legacy setting from before the billing rules; ignored. */
+  timerRoundingMin?: number
   sync?: SyncState
 }

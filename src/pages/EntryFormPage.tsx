@@ -7,7 +7,8 @@ import { useLookups, useSettings } from '../db/hooks'
 import { addEntry, deleteEntry, effectiveRate, updateEntry, type EntryInput } from '../db/repo'
 import { db, DEFAULT_SETTINGS } from '../db/schema'
 import type { TimeEntry } from '../db/types'
-import { durationMinutes, formatDuration, formatMoney, isValidHm, isValidIsoDate, toHm, todayIso } from '../lib/time'
+import { DURATION_CHOICES_MIN, roundInterval } from '../lib/rounding'
+import { durationMinutes, formatDuration, formatMoney, hmToMinutes, isValidHm, isValidIsoDate, minutesToHm, toHm, todayIso } from '../lib/time'
 
 interface FormState {
   date: string
@@ -23,6 +24,8 @@ interface FormState {
   invoiceDate: string
   invoiceRef: string
   billable: boolean
+  /** Derive the billed columns with the billing rules. */
+  normalize: boolean
 }
 
 function stateFromEntry(e: TimeEntry): FormState {
@@ -39,10 +42,11 @@ function stateFromEntry(e: TimeEntry): FormState {
     invoiceDate: e.invoiceDate ?? '',
     invoiceRef: e.invoiceRef ?? '',
     billable: e.billable !== false,
+    normalize: e.billedMin != null,
   }
 }
 
-function freshState(lastClientId?: number, lastProjectId?: number): FormState {
+function freshState(lastClientId: number | undefined, lastProjectId: number | undefined, normalize: boolean): FormState {
   const now = new Date()
   const start = new Date(now.getTime() - 60 * 60_000)
   return {
@@ -58,6 +62,7 @@ function freshState(lastClientId?: number, lastProjectId?: number): FormState {
     invoiceDate: '',
     invoiceRef: '',
     billable: true,
+    normalize,
   }
 }
 
@@ -79,7 +84,7 @@ export default function EntryFormPage() {
       key={entryId ?? 'new'}
       entryId={entryId}
       existing={existing ?? undefined}
-      initial={existing ? stateFromEntry(existing) : freshState(settings.lastClientId, settings.lastProjectId)}
+      initial={existing ? stateFromEntry(existing) : freshState(settings.lastClientId, settings.lastProjectId, settings.roundingMode !== 'exact')}
     />
   )
 }
@@ -110,8 +115,17 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
       return null
     }
   }, [form.startTime, form.endTime])
-  const amount = duration != null && Number.isFinite(rateNum) ? (duration / 60) * rateNum : 0
+  const billed = useMemo(() => {
+    if (duration == null || !form.normalize) return null
+    return roundInterval(form.startTime, form.endTime)
+  }, [duration, form.normalize, form.startTime, form.endTime])
+  const billedMin = billed ? billed.durationMin : duration
+  const amount = billedMin != null && Number.isFinite(rateNum) ? (billedMin / 60) * rateNum : 0
   const currency = client?.currency ?? settings.defaultCurrency
+  const setDuration = (min: number) => {
+    if (!isValidHm(form.startTime)) return
+    set('endTime', minutesToHm(hmToMinutes(form.startTime) + min))
+  }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -135,6 +149,7 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
       invoiceDate: form.isBilled ? form.invoiceDate || undefined : undefined,
       invoiceRef: form.isBilled ? form.invoiceRef : undefined,
       billable: form.billable,
+      normalize: form.normalize,
       importKey: existing?.importKey,
     }
     if (entryId != null) {
@@ -183,16 +198,34 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
             <input type="time" value={form.endTime} onChange={(e) => set('endTime', e.target.value)} required />
           </label>
         </div>
+        <div className="row wrap" style={{ gap: 6 }}>
+          {DURATION_CHOICES_MIN.map((m) => (
+            <button key={m} type="button" className={`btn small${duration === m ? ' primary' : ''}`} onClick={() => setDuration(m)}>
+              {formatDuration(m)}
+            </button>
+          ))}
+        </div>
         <p className="muted small">
           {duration != null ? (
             <>
               Duration <strong>{formatDuration(duration)}</strong>
               {form.endTime <= form.startTime ? ' (ends after midnight)' : ''} · Amount <strong>{formatMoney(amount, currency)}</strong>
+              {billed && (
+                <>
+                  <br />
+                  Billed as <strong>{billed.startTime}–{billed.endTime}</strong> · <strong>{formatDuration(billed.durationMin)}</strong>
+                  {!billed.billable ? ' · under 7 minutes: non-billable' : ''}
+                </>
+              )}
             </>
           ) : (
             'Enter start and end times'
           )}
         </p>
+        <label className="check">
+          <input type="checkbox" checked={form.normalize} onChange={(e) => set('normalize', e.target.checked)} />
+          Apply billing rounding (10-min start, 15-min steps)
+        </label>
 
         <ClientProjectPicker
           clientId={form.clientId}

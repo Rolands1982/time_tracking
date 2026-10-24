@@ -1,26 +1,55 @@
 import { db, getSettings, updateSettings, type TimeTrackingDB } from './schema'
 import type { Client, Project, RunningTimer, TimeEntry } from './types'
-import { computeAmount, durationMinutes, roundDuration, toHm, toIsoDate } from '../lib/time'
+import { roundInterval } from '../lib/rounding'
+import { computeAmount, durationMinutes, toHm, toIsoDate } from '../lib/time'
 
 /** Fields the user supplies; derived fields are computed here. */
 export type EntryInput = Omit<
   TimeEntry,
-  'id' | 'durationMin' | 'amount' | 'createdAt' | 'updatedAt' | 'source'
-> & { source?: TimeEntry['source'] }
+  'id' | 'durationMin' | 'amount' | 'createdAt' | 'updatedAt' | 'source' | 'billedStartTime' | 'billedEndTime' | 'billedMin'
+> & {
+  source?: TimeEntry['source']
+  /**
+   * Whether to derive the billed columns with the billing rules. Defaults to "keep what the
+   * record had": normalised records stay normalised, old records stay untouched. New records
+   * get the default from settings in addEntry().
+   */
+  normalize?: boolean
+}
+
+/** Minutes that are invoiced for an entry: the normalised value when present, else the real minutes. */
+export function billedMinutes(e: Pick<TimeEntry, 'durationMin' | 'billedMin'>): number {
+  return e.billedMin ?? e.durationMin
+}
 
 export function buildEntry(input: EntryInput, existing?: TimeEntry): TimeEntry {
   const durationMin = durationMinutes(input.startTime, input.endTime)
   const now = new Date().toISOString()
+  const normalize = input.normalize ?? existing?.billedMin != null
+  let billable = input.billable === false ? false : undefined
+  let billed: Pick<TimeEntry, 'billedStartTime' | 'billedEndTime' | 'billedMin'> = {
+    billedStartTime: undefined,
+    billedEndTime: undefined,
+    billedMin: undefined,
+  }
+  if (normalize) {
+    const r = roundInterval(input.startTime, input.endTime)
+    billed = { billedStartTime: r.startTime, billedEndTime: r.endTime, billedMin: r.durationMin }
+    if (!r.billable) billable = false
+  }
+  const { normalize: _ignored, ...fields } = input
+  void _ignored
   return {
     ...existing,
-    ...input,
+    ...fields,
     comments: input.comments ?? '',
     isBilled: Boolean(input.isBilled),
     invoiceDate: input.isBilled ? input.invoiceDate || undefined : undefined,
     invoiceRef: input.isBilled ? input.invoiceRef?.trim() || undefined : undefined,
-    billable: input.billable === false ? false : undefined,
+    billable,
     durationMin,
-    amount: computeAmount(durationMin, input.hourlyRate),
+    ...billed,
+    amount: computeAmount(billed.billedMin ?? durationMin, input.hourlyRate),
     source: input.source ?? existing?.source ?? 'manual',
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -28,7 +57,8 @@ export function buildEntry(input: EntryInput, existing?: TimeEntry): TimeEntry {
 }
 
 export async function addEntry(input: EntryInput, database: TimeTrackingDB = db): Promise<number> {
-  const entry = buildEntry(input)
+  const normalize = input.normalize ?? (await getSettings(database)).roundingMode !== 'exact'
+  const entry = buildEntry({ ...input, normalize })
   const id = await database.entries.add(entry)
   await updateSettings({ lastClientId: entry.clientId, lastProjectId: entry.projectId }, database)
   return id as number
@@ -135,6 +165,29 @@ export async function cancelTimer(database: TimeTrackingDB = db): Promise<void> 
   await updateSettings({ runningTimer: undefined }, database)
 }
 
+export interface TimerRecording {
+  /** Real start and end (seconds dropped, at least one minute long). */
+  start: Date
+  end: Date
+  actualMin: number
+  /** What the billing rules make of it. */
+  billedStartTime: string
+  billedEndTime: string
+  billedMin: number
+  billable: boolean
+}
+
+/** What a running timer would be recorded and billed as right now. */
+export function timerRecording(started: Date, now: Date): TimerRecording {
+  // Elapsed time is measured on the real timestamps; the stored interval starts on the whole minute.
+  const actualMin = Math.max(1, Math.round((now.getTime() - started.getTime()) / 60_000))
+  const start = new Date(started)
+  start.setSeconds(0, 0)
+  const end = new Date(start.getTime() + actualMin * 60_000)
+  const r = roundInterval(toHm(start), toHm(end))
+  return { start, end, actualMin, billedStartTime: r.startTime, billedEndTime: r.endTime, billedMin: r.durationMin, billable: r.billable }
+}
+
 /**
  * Stop the running timer and turn it into an entry.
  * Returns the new entry id, or undefined when no timer was running.
@@ -148,20 +201,12 @@ export async function stopTimer(
   const t = s.runningTimer
   if (!t) return undefined
   const started = new Date(t.startedAt)
-  let end = now
-  // Never produce a zero-length entry: the minimum is one minute.
-  if (end.getTime() - started.getTime() < 60_000) end = new Date(started.getTime() + 60_000)
-  let endHm = toHm(end)
-  if (s.timerRoundingMin > 0) {
-    const raw = Math.round((end.getTime() - started.getTime()) / 60_000)
-    const rounded = roundDuration(raw, s.timerRoundingMin)
-    endHm = toHm(new Date(started.getTime() + rounded * 60_000))
-  }
+  const rec = timerRecording(started, now)
   const id = await addEntry(
     {
-      date: toIsoDate(started),
-      startTime: toHm(started),
-      endTime: endHm,
+      date: toIsoDate(rec.start),
+      startTime: toHm(rec.start),
+      endTime: toHm(rec.end),
       clientId: opts.clientId,
       projectId: opts.projectId,
       hourlyRate: opts.hourlyRate,
@@ -169,6 +214,7 @@ export async function stopTimer(
       category: opts.category ?? t.category,
       isBilled: false,
       source: 'timer',
+      normalize: s.roundingMode !== 'exact',
     },
     database,
   )
@@ -210,7 +256,10 @@ export function compareEntries(a: TimeEntry, b: TimeEntry): number {
 
 export interface Totals {
   count: number
+  /** Real minutes. */
   durationMin: number
+  /** Minutes on the invoice (normalised where available). */
+  billedMin: number
   amount: number
   billedAmount: number
   unbilledAmount: number
@@ -218,15 +267,16 @@ export interface Totals {
 }
 
 export function totals(entries: TimeEntry[]): Totals {
-  const t: Totals = { count: 0, durationMin: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0 }
+  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0 }
   for (const e of entries) {
     t.count++
     t.durationMin += e.durationMin
+    t.billedMin += billedMinutes(e)
     t.amount += e.amount
     if (e.isBilled) t.billedAmount += e.amount
     else if (isBillable(e)) {
       t.unbilledAmount += e.amount
-      t.unbilledMin += e.durationMin
+      t.unbilledMin += billedMinutes(e)
     }
   }
   return t

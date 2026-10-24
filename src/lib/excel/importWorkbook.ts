@@ -49,6 +49,8 @@ export interface ParsedEntry {
   invoiceRef?: string
   /** false when the row is marked as not to be invoiced. */
   billable?: boolean
+  /** Normalised billed minutes when the sheet carries them (master file round trip). */
+  billedMin?: number
   /** True when the sheet has a billing / invoice column at all (old sheets have none). */
   hasBillingInfo: boolean
   sheet: string
@@ -84,15 +86,16 @@ type ColumnKey =
   | 'rate'
   | 'invoiceRef'
   | 'billable'
+  | 'billedHours'
 
 const HEADER_ALIASES: Record<ColumnKey, string[]> = {
   date: ['date', 'datums', 'day'],
   start: ['from', 'start', 'start time', 'no', 'sākums'],
   end: ['till', 'to', 'end', 'end time', 'until', 'līdz', 'beigas'],
   hours: ['total hours', 'hours', 'duration', 'stundas', 'stundas kopā'],
-  earned: ['earned', 'amount', 'total', 'sum', 'summa', 'summa (eur)', 'summa eur'],
+  earned: ['earned', 'amount', 'amount (eur)', 'amount eur', 'total', 'sum', 'summa', 'summa (eur)', 'summa eur'],
   project: ['project', 'projekts'],
-  comments: ['what is done?', 'what is done', 'comments', 'comment', 'description', 'task', 'notes', 'apraksts', 'kas tika izdarīts'],
+  comments: ['what is done?', 'what is done', 'comments', 'comment', 'description', 'job description', 'task', 'notes', 'apraksts', 'kas tika izdarīts'],
   category: ['category', 'kategorija', 'type', 'projekta stadija', 'stadija'],
   billed: ['when billed?', 'when billed', 'billed', 'is billed', 'invoiced', 'rēķins', 'invoice'],
   invoiceDate: ['invoice date', 'invoiced on', 'rēķina datums'],
@@ -100,6 +103,7 @@ const HEADER_ALIASES: Record<ColumnKey, string[]> = {
   rate: ['rate', 'hourly rate', 'likme'],
   invoiceRef: ['invoice ref', 'invoice reference', 'invoice number', 'invoice no', 'rēķina nr', 'rēķina numurs'],
   billable: ['billable', 'piestādāms'],
+  billedHours: ['billed hours', 'billed minutes'],
 }
 
 const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').replace(/[:*]/g, '').trim()
@@ -214,6 +218,9 @@ function parseSheet(ws: Worksheet, opts: ImportOptions, warnings: string[]): { e
 
     if (label === 'total' || label.startsWith('total')) break
     if (rowDate) carriedDate = rowDate
+    else if (label && (startMin != null || endMin != null)) {
+      warnings.push(`${ws.name}!${r}: unreadable date "${label}"; used the previous row's date${carriedDate ? ` (${carriedDate})` : ''}`)
+    }
 
     if (startMin == null && endMin == null) continue // empty / formula-only row
     if (startMin == null || endMin == null || !carriedDate) {
@@ -287,12 +294,19 @@ function parseSheet(ws: Worksheet, opts: ImportOptions, warnings: string[]): { e
       if (NOT_BILLED.has(flag) || NON_BILLABLE.has(flag)) billed.billable = false
     }
 
+    let billedMin: number | undefined
+    if (c.billedHours != null) {
+      const bh = cellNumber(row.getCell(c.billedHours))
+      if (bh != null && bh > 0) billedMin = Math.round(bh * 60)
+    }
+
     const base = { date: carriedDate, startTime, endTime, client, project, comments }
     entries.push({
       ...base,
       durationMin,
       hourlyRate,
-      amount: computeAmount(durationMin, hourlyRate),
+      amount: computeAmount(billedMin ?? durationMin, hourlyRate),
+      billedMin,
       category,
       isBilled: billed.isBilled,
       invoiceDate: billed.invoiceDate,

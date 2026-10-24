@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { applyBilledBefore, guessClientName, parseBilled, parseWorkbook, type ParseResult } from '../../src/lib/excel/importWorkbook'
-import { parseDateString, rateFromFormula } from '../../src/lib/excel/cells'
+import ExcelJS from 'exceljs'
+import { cellDate, parseDateString, rateFromFormula } from '../../src/lib/excel/cells'
 import { buildFixtureWorkbook } from './fixtures'
 
 describe('Excel import', () => {
@@ -11,7 +12,7 @@ describe('Excel import', () => {
 
   it('finds the time sheets and ignores other sheets', () => {
     const names = result.sheets.map((s) => `${s.name}:${s.imported}`)
-    expect(names).toEqual(['October:4', 'Jan 2019:4', 'Support:3', 'Notes:0', 'Uzskaite:3', 'ViVi:1'])
+    expect(names).toEqual(['October:4', 'Jan 2019:4', 'Support:3', 'Notes:0', 'Uzskaite:3', 'ViVi:1', 'Details:1'])
     expect(result.sheets.find((s) => s.name === 'Notes')?.reason).toMatch(/no Date/)
   })
 
@@ -52,7 +53,7 @@ describe('Excel import', () => {
 
   it('totals match what the sheets say', () => {
     const hours = result.entries.reduce((s, e) => s + e.durationMin, 0) / 60
-    expect(hours).toBeCloseTo(1 + 2 + 2.5 + 1 + 2 + 1 + 3 + 3 + 1 + 0.5 + 0.25 + 0.5 + 1 + 0.5 + 1, 5)
+    expect(hours).toBeCloseTo(1 + 2 + 2.5 + 1 + 2 + 1 + 3 + 3 + 1 + 0.5 + 0.25 + 0.5 + 1 + 0.5 + 1 + 0.5, 5)
   })
 
   it('understands Latvian headers, month-label invoices and non-billable rows', () => {
@@ -73,6 +74,10 @@ describe('Excel import', () => {
     expect(fresh.entries.filter((e) => e.sheet === 'Uzskaite')[2].isBilled).toBe(false) // has billing column, untouched
   })
 
+  it('reads the "Amount (EUR)" / "Job description" / From / To layout', () => {
+    expect(result.entries.find((e) => e.sheet === 'Details')).toMatchObject({ startTime: '17:00', endTime: '17:30', durationMin: 30, hourlyRate: 70, amount: 35, comments: 'Initial meeting', project: 'POC' })
+  })
+
   it('takes the rate from a money formula placed under the hours header', () => {
     expect(result.entries.find((e) => e.sheet === 'ViVi')).toMatchObject({ durationMin: 60, hourlyRate: 80, amount: 80 })
   })
@@ -85,6 +90,14 @@ describe('cell helpers', () => {
     expect(rateFromFormula('IF(ISBLANK(B3),"",D3*47.5)')).toBe(47.5)
     expect(rateFromFormula('SUM(E:E)')).toBeNull()
     expect(rateFromFormula(undefined)).toBeNull()
+  })
+
+  it('rejects 1900-era dates that come from numbers typed into the date column', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('x')
+    ws.getCell('A1').value = new Date(Date.UTC(1900, 0, 11, 1, 40))
+    ws.getCell('A2').value = new Date(Date.UTC(2020, 6, 11))
+    expect(cellDate(ws.getCell('A1'))).toBeNull()
+    expect(cellDate(ws.getCell('A2'))).toBe('2020-07-11')
   })
 
   it('parses several date formats', () => {

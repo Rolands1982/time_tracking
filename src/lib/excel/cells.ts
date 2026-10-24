@@ -60,6 +60,8 @@ export function cellDate(cell: Cell | undefined): string | null {
   const v = rawValue(cell?.value)
   if (v == null || v === '') return null
   if (v instanceof Date) {
+    // A small number typed into a date column (e.g. "11.07") shows up as a date in 1900: not a real date.
+    if (v.getUTCFullYear() < 1950) return null
     return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`
   }
   if (typeof v === 'number') {

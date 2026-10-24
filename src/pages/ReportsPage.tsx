@@ -130,8 +130,9 @@ export default function ReportsPage() {
         </select>
         <div className="stat-grid">
           <div className="stat">
-            <div className="label">Hours</div>
-            <div className="value">{(t.durationMin / 60).toFixed(2)}</div>
+            <div className="label">Billed hours</div>
+            <div className="value">{(t.billedMin / 60).toFixed(2)}</div>
+            {t.billedMin !== t.durationMin && <div className="label">actual {(t.durationMin / 60).toFixed(2)}</div>}
           </div>
           <div className="stat">
             <div className="label">Amount</div>
@@ -202,8 +203,8 @@ export default function ReportsPage() {
         currency={currency}
       />
       <p className="muted small">
-        Totals per client use that client's currency; the overall figures use {currency}. Invoices, ERP export and the
-        monthly hours report for the tax authority are planned on top of these numbers.
+        Hours and amounts are on the billed basis (start snapped to 10 minutes, 15-minute steps); actual minutes are shown
+        where they differ. Totals per client use that client's currency; the overall figures use {currency}.
       </p>
     </>
   )
@@ -231,7 +232,7 @@ function SummaryTable({ title, rows, currency }: { title: string; rows: readonly
               return (
                 <tr key={label}>
                   <td>{label}</td>
-                  <td className="num">{formatDuration(t.durationMin)}</td>
+                  <td className="num">{formatDuration(t.billedMin)}</td>
                   <td className="num">{formatMoney(t.amount, currency)}</td>
                   <td className="num">{t.unbilledAmount ? formatMoney(t.unbilledAmount, currency) : '–'}</td>
                 </tr>
@@ -239,7 +240,7 @@ function SummaryTable({ title, rows, currency }: { title: string; rows: readonly
             })}
             <tr className="total">
               <td>Total</td>
-              <td className="num">{formatDuration(all.durationMin)}</td>
+              <td className="num">{formatDuration(all.billedMin)}</td>
               <td className="num">{formatMoney(all.amount, currency)}</td>
               <td className="num">{all.unbilledAmount ? formatMoney(all.unbilledAmount, currency) : '–'}</td>
             </tr>
