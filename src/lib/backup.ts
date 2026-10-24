@@ -31,20 +31,28 @@ export function isBackup(x: unknown): x is Backup {
   )
 }
 
-/** Replace all local data with the backup (ids are preserved so references stay intact). */
+/**
+ * Replace all local data with the backup (ids are preserved so references stay intact).
+ * Restored rows are marked as local changes, so they are pushed to the cloud on the next sync;
+ * the sync cursors are reset so the cloud copy is pulled again afterwards.
+ */
 export async function restoreBackup(backup: Backup, database: TimeTrackingDB = db): Promise<void> {
   if (!isBackup(backup)) throw new Error('Not a time-tracking backup file')
-  await database.transaction('rw', database.clients, database.projects, database.entries, database.settings, async () => {
-    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear()])
-    await database.clients.bulkAdd(backup.clients)
-    await database.projects.bulkAdd(backup.projects ?? [])
-    await database.entries.bulkAdd(backup.entries)
-    if (backup.settings) await database.settings.put({ ...backup.settings, id: 'app', runningTimer: undefined })
+  await database.transaction('rw', [database.clients, database.projects, database.entries, database.settings, database.tombstones], async () => {
+    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear(), database.tombstones.clear()])
+    const fresh = <T extends { dirty?: 0 | 1 }>(rows: T[]) => rows.map((r) => ({ ...r, dirty: 1 as const }))
+    await database.clients.bulkAdd(fresh(backup.clients))
+    await database.projects.bulkAdd(fresh(backup.projects ?? []))
+    await database.entries.bulkAdd(fresh(backup.entries))
+    if (backup.settings) {
+      await database.settings.put({ ...backup.settings, id: 'app', runningTimer: undefined, sync: undefined })
+    }
   })
 }
 
+/** Wipe the local copy only; the cloud data (if any) is left untouched. */
 export async function clearAllData(database: TimeTrackingDB = db): Promise<void> {
-  await database.transaction('rw', database.clients, database.projects, database.entries, database.settings, async () => {
-    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear()])
+  await database.transaction('rw', [database.clients, database.projects, database.entries, database.settings, database.tombstones], async () => {
+    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear(), database.tombstones.clear()])
   })
 }

@@ -41,6 +41,7 @@ jobs:
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+          # The cloud sync configuration comes from the committed .env file.
       # The workflow token may not create the Pages site itself ("Resource not accessible by
       # integration"); the site has to be enabled once under Settings → Pages → Source: GitHub Actions.
       # Keep the step so it validates the setup, but never fail the build on it.

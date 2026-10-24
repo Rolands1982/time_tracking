@@ -13,6 +13,7 @@
     "merge-excel": "node --import tsx scripts/merge-excel.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "dexie": "^4.4.7",
     "dexie-react-hooks": "^4.4.0",
     "exceljs": "^4.4.0",

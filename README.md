@@ -23,7 +23,11 @@ and it behaves like a native app, including offline.
   Re-importing a file never duplicates rows.
 - **Master file export**: one `.xlsx` with every entry and summary sheets (by month, client, client & project,
   invoice, clients).
-- **Backup / restore** as JSON. All data is stored on the device (IndexedDB); there is no server yet.
+- **Backup / restore** as JSON. Data is stored on the device (IndexedDB) and works offline.
+- **Cloud sync (optional)** to a Supabase (PostgreSQL) project: sign in with e-mail and password, and every device
+  shares the same clients, projects and entries. Changes made offline are pushed when back online; deletions and
+  conflicts (last writer wins) are handled. The database doubles as the source for Power BI, invoicing and other
+  reports (`entries_report` view).
 
 ## Planned next
 
@@ -52,6 +56,22 @@ Each input is `path[=client name[:default rate]]`. The client name defaults to a
 rate is only used for rows where the sheet does not reveal one. The JSON file can be restored from the app's
 *Data* screen, so historical data can be loaded onto the phone in one step. Importing the `.xlsx` files directly
 in the app works too.
+
+## Cloud sync setup (Supabase)
+
+1. Create a free project at <https://supabase.com> (choose a region close to you).
+2. In the project open *SQL editor*, paste the contents of `supabase/schema.sql` and run it. This creates the
+   `clients`, `projects` and `entries` tables with row level security, plus the `entries_report` view.
+3. *Authentication → Providers*: keep *Email* enabled. Optionally turn off *Confirm email* for a single-user setup.
+4. Copy the *Project URL* and the *anon public* key from *Project settings → API*.
+5. Put both into `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) so the published app has them built in. The
+   publishable key is safe to commit: it only identifies the project, access is governed by sign-in and row level
+   security. A different project can still be entered per device under *Data → Cloud sync*.
+6. In the app create the account (e-mail + password), sign in, and press *Sync now*. Restore the historical backup on
+   one device before or after; it is pushed on the next sync.
+
+Power BI, Excel or any SQL tool can connect with the *Session pooler* connection string from
+*Project settings → Database* and read `entries_report`.
 
 ## Deployment
 

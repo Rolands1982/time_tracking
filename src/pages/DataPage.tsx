@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import CloudSyncCard from '../components/CloudSyncCard'
 import { useToast } from '../components/toastContext'
 import { useSettings } from '../db/hooks'
 import { db, updateSettings } from '../db/schema'
@@ -117,6 +118,8 @@ export default function DataPage() {
         </span>
       </div>
 
+      <CloudSyncCard />
+
       <h2>Import Excel time sheet</h2>
       <div className="card stack">
         <p className="muted small">
@@ -196,7 +199,8 @@ export default function DataPage() {
       <h2>Backup</h2>
       <div className="card stack">
         <p className="muted small">
-          Data lives only on this device. Keep a backup (JSON) and restore it on a new phone, or after reinstalling.
+          A full copy of the local data as JSON. With cloud sync on, restore a backup on one device only; the others
+          receive the data through sync.
         </p>
         <button className="btn" onClick={backup} disabled={counts.entries === 0 && counts.clients === 0}>
           ⬇ Download backup (.json)
