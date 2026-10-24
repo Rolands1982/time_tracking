@@ -6,7 +6,16 @@
  * always expressed in the local wall-clock time it was entered in).
  */
 
-export interface Client {
+/** Fields shared by every synced record. */
+export interface Synced {
+  /** Stable identifier shared with the cloud database (UUID). */
+  uid?: string
+  /** 1 when the record has local changes not yet pushed to the cloud. */
+  dirty?: 0 | 1
+  updatedAt?: string
+}
+
+export interface Client extends Synced {
   id?: number
   name: string
   /** Default hourly rate applied to new entries for this client. */
@@ -18,7 +27,7 @@ export interface Client {
   archived?: boolean
 }
 
-export interface Project {
+export interface Project extends Synced {
   id?: number
   clientId: number
   name: string
@@ -29,7 +38,7 @@ export interface Project {
 
 export type EntrySource = 'manual' | 'timer' | 'import'
 
-export interface TimeEntry {
+export interface TimeEntry extends Synced {
   id?: number
   /** "YYYY-MM-DD" – the calendar day the work started on. */
   date: string
@@ -61,6 +70,22 @@ export interface TimeEntry {
   updatedAt: string
 }
 
+export type SyncTable = 'clients' | 'projects' | 'entries'
+
+/** A record deleted locally whose deletion still has to be pushed to the cloud. */
+export interface Tombstone {
+  id?: number
+  table: SyncTable
+  uid: string
+}
+
+export interface SyncState {
+  /** Per table: the highest server `synced_at` already pulled. */
+  cursors: Partial<Record<SyncTable, string>>
+  lastSyncAt?: string
+  lastError?: string
+}
+
 export interface RunningTimer {
   startedAt: string // ISO datetime
   clientId?: number
@@ -79,4 +104,5 @@ export interface Settings {
   lastProjectId?: number
   /** Timer rounding in minutes (0 = exact). */
   timerRoundingMin: number
+  sync?: SyncState
 }

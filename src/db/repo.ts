@@ -45,7 +45,7 @@ export async function updateEntry(
 }
 
 export async function deleteEntry(id: number, database: TimeTrackingDB = db): Promise<void> {
-  await database.entries.delete(id)
+  await database.deleteSynced('entries', id)
 }
 
 /** Mark entries as billed (or unbilled when invoiceDate is undefined). */

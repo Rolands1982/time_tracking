@@ -41,6 +41,10 @@ jobs:
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+          # Optional: set these repository variables (Settings → Secrets and variables → Actions → Variables)
+          # to bake the cloud sync configuration into the published app.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       # The workflow token may not create the Pages site itself ("Resource not accessible by
       # integration"); the site has to be enabled once under Settings → Pages → Source: GitHub Actions.
       # Keep the step so it validates the setup, but never fail the build on it.
