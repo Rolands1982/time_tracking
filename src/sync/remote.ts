@@ -85,6 +85,8 @@ export function resetSupabaseClient(): void {
 }
 
 const PAGE = 1000
+/** UUIDs per delete request: 100 ids are about 4 KB of URL. */
+const DELETE_BATCH = 100
 
 export class SupabaseRemote implements Remote {
   private readonly client: SupabaseClient
@@ -101,10 +103,13 @@ export class SupabaseRemote implements Remote {
   }
 
   async markDeleted(table: SyncTable, ids: string[]): Promise<void> {
-    if (!ids.length) return
     const now = new Date().toISOString()
-    const { error } = await this.client.from(table).update({ deleted_at: now, updated_at: now }).in('id', ids)
-    if (error) throw new Error(`${table}: ${error.message}`)
+    // The ids travel in the URL (`id=in.(…)`), so a restore that tombstones thousands of rows
+    // must be split into requests that stay well under the URL length limit.
+    for (let i = 0; i < ids.length; i += DELETE_BATCH) {
+      const { error } = await this.client.from(table).update({ deleted_at: now, updated_at: now }).in('id', ids.slice(i, i + DELETE_BATCH))
+      if (error) throw new Error(`${table}: ${error.message}`)
+    }
   }
 
   async pullSince(table: SyncTable, cursor: string | undefined): Promise<RemoteRow[]> {
