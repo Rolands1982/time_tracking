@@ -5,6 +5,7 @@ import { SyncEngine } from '../../src/sync/engine'
 import type { Remote, RemoteRow } from '../../src/sync/remote'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
+import { findDuplicates, removeDuplicates } from '../../src/db/repo'
 
 /** In-memory stand-in for the Supabase tables, including the server-side synced_at stamp. */
 class MemoryRemote implements Remote {
@@ -181,5 +182,56 @@ describe('push and pull between two devices', () => {
     expect((await b.entries.toArray()).every((e) => e.dirty === 1)).toBe(true)
     expect(await new SyncEngine(remote, b).run()).toMatchObject({ pushed: 3 })
     expect(remote.tables.entries.size).toBe(1)
+  })
+
+  it('a restore replaces the cloud copy instead of duplicating it', async () => {
+    // Device A restores a backup without uids (as produced by the merge script) and syncs.
+    const seedDb = new TimeTrackingDB(`seed-${n}`)
+    await seed(seedDb)
+    const backup = await createBackup(seedDb)
+    const stripUids = <T extends { uid?: string; dirty?: 0 | 1 }>(rows: T[]) => rows.map(({ uid: _u, dirty: _d, ...r }) => r as T)
+    const noUids = { ...backup, clients: stripUids(backup.clients), projects: stripUids(backup.projects), entries: stripUids(backup.entries) }
+    await restoreBackup(noUids, a)
+    await new SyncEngine(remote, a).run()
+    await new SyncEngine(remote, b).run()
+    expect(await b.entries.count()).toBe(1)
+
+    // The same backup is restored again on A (new uids): the old cloud rows must be removed, not duplicated.
+    await restoreBackup(noUids, a)
+    expect(await a.tombstones.count()).toBe(3)
+    await new SyncEngine(remote, a).run()
+    expect([...remote.tables.entries.values()].filter((r) => !r.deleted_at)).toHaveLength(1)
+    await new SyncEngine(remote, b).run()
+    expect(await b.entries.count()).toBe(1)
+    expect(await b.clients.count()).toBe(1)
+    expect(await b.projects.count()).toBe(1)
+  })
+
+  it('removes duplicates and propagates the removal', async () => {
+    const seedDb = new TimeTrackingDB(`seed2-${n}`)
+    await seed(seedDb)
+    const backup = await createBackup(seedDb)
+    const stripUids = <T extends { uid?: string; dirty?: 0 | 1 }>(rows: T[]) => rows.map(({ uid: _u, dirty: _d, ...r }) => r as T)
+    const noUids = { ...backup, clients: stripUids(backup.clients), projects: stripUids(backup.projects), entries: stripUids(backup.entries) }
+    // Simulate the old behaviour: two devices restored the same backup independently and both pushed.
+    await restoreBackup(noUids, a)
+    await new SyncEngine(remote, a).run()
+    await restoreBackup(noUids, b)
+    await b.tombstones.clear() // pretend B restored with the old code that did not tombstone
+    await new SyncEngine(remote, b).run()
+    await new SyncEngine(remote, a).run()
+    expect(await a.entries.count()).toBe(2)
+    expect(await a.projects.count()).toBe(2)
+    expect(await findDuplicates(a)).toEqual({ entries: 1, projects: 1 })
+
+    expect(await removeDuplicates(a)).toEqual({ entries: 1, projects: 1 })
+    expect(await a.entries.count()).toBe(1)
+    expect(await a.projects.count()).toBe(1)
+    expect((await a.entries.toArray())[0].projectId).toBe((await a.projects.toArray())[0].id)
+    await new SyncEngine(remote, a).run()
+    await new SyncEngine(remote, b).run()
+    expect(await b.entries.count()).toBe(1)
+    expect(await b.projects.count()).toBe(1)
+    expect(await findDuplicates(b)).toEqual({ entries: 0, projects: 0 })
   })
 })

@@ -4,6 +4,7 @@ import CloudSyncCard from '../components/CloudSyncCard'
 import { useToast } from '../components/toastContext'
 import { useSettings } from '../db/hooks'
 import { db, updateSettings } from '../db/schema'
+import { findDuplicates, removeDuplicates } from '../db/repo'
 import { clearAllData, createBackup, isBackup, restoreBackup } from '../lib/backup'
 import type { ImportSummary } from '../lib/excel/importIntoDb'
 import { guessClientName } from '../lib/excel/guessClientName'
@@ -18,6 +19,7 @@ export default function DataPage() {
     [],
     { entries: 0, clients: 0, projects: 0 },
   )
+  const duplicates = useLiveQuery(() => findDuplicates(), [], { entries: 0, projects: 0 })
 
   const [file, setFile] = useState<File | null>(null)
   const [clientName, setClientName] = useState('')
@@ -103,10 +105,17 @@ export default function DataPage() {
   }
 
   const wipe = async () => {
-    if (!confirm('Delete ALL entries, clients and projects on this device? Export a backup first.')) return
+    if (!confirm('Delete ALL entries, clients and projects? With cloud sync on, the next sync removes them from the cloud as well. Export a backup first.')) return
     if (!confirm('Really delete everything?')) return
     await clearAllData()
     toast('All data deleted')
+  }
+
+  const dedupe = async () => {
+    const n = duplicates.entries + duplicates.projects
+    if (!confirm(`Remove ${duplicates.entries} duplicate entries and ${duplicates.projects} duplicate projects? The oldest copy of each is kept.`)) return
+    const r = await removeDuplicates()
+    toast(`Removed ${r.entries} entries and ${r.projects} projects (${n} expected)`)
   }
 
   return (
@@ -199,8 +208,8 @@ export default function DataPage() {
       <h2>Backup</h2>
       <div className="card stack">
         <p className="muted small">
-          A full copy of the local data as JSON. With cloud sync on, restore a backup on one device only; the others
-          receive the data through sync.
+          A full copy of the data as JSON. Restoring replaces everything, in the cloud too when sync is on, so restore
+          on one device only; the others receive the data through sync.
         </p>
         <button className="btn" onClick={backup} disabled={counts.entries === 0 && counts.clients === 0}>
           ⬇ Download backup (.json)
@@ -226,8 +235,18 @@ export default function DataPage() {
             </select>
           </label>
         </div>
+        <div className="row between">
+          <span className="small">
+            {duplicates.entries + duplicates.projects === 0
+              ? 'No duplicate entries or projects.'
+              : `${duplicates.entries} duplicate entries, ${duplicates.projects} duplicate projects.`}
+          </span>
+          <button className="btn small" onClick={dedupe} disabled={duplicates.entries + duplicates.projects === 0} data-testid="dedupe">
+            Remove duplicates
+          </button>
+        </div>
         <button className="btn danger" onClick={wipe}>
-          Delete all data on this device
+          Delete all data
         </button>
       </div>
     </>
