@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { Link } from 'react-router-dom'
 import { useToast } from '../components/toastContext'
 import { useClients, useProjects, useSettings } from '../db/hooks'
 import { db } from '../db/schema'
@@ -190,6 +191,9 @@ function ClientDetails({ client, onEdit }: { client: Client; onEdit: () => void 
           Apply rate to {noRate} entries without a rate
         </button>
       )}
+      <Link className="btn" to={`/summary?client=${client.id}&period=all`}>
+        Customer summary (Excel / PDF)
+      </Link>
       <button className="btn" onClick={onEdit}>
         Edit client
       </button>

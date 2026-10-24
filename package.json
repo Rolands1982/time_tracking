@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "@types/pdfmake": "^0.3.3",
     "dexie": "^4.4.7",
     "dexie-react-hooks": "^4.4.0",
     "exceljs": "^4.4.0",
+    "pdfmake": "^0.3.12",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.4"

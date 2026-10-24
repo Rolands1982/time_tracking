@@ -36,8 +36,9 @@ report for the tax authority.
 ```
 src/db        Dexie (IndexedDB) schema v2, types, repository functions (entries, timer, billing, reporting)
 src/sync      cloud sync: engine (pull then push), remote interface + Supabase implementation, React hook
-src/lib       pure helpers: time/money, Excel import & master export (ExcelJS, lazy-loaded), JSON backup
-src/pages     Timer, Entries, Entry form, Reports, Clients, Data (import/export/backup/cloud sync/settings)
+src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
+              summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup
+src/pages     Timer, Entries, Entry form, Reports, Summary (customer summary → Excel/PDF), Clients, Data
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app)
 supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view
@@ -64,7 +65,10 @@ Conventions that matter:
   Remove duplicates` (`removeDuplicates()`) repairs data that was duplicated anyway.
 - Excel import is header-driven (English and Latvian aliases in `importWorkbook.ts`) and idempotent via
   `importKey`. New sheet layouts get an alias and a fixture sheet plus a test, not a special case in the UI.
-- Heavy libraries (ExcelJS, Supabase client) are imported dynamically; keep the main bundle small.
+- Heavy libraries (ExcelJS, pdfmake + fonts, Supabase client) are imported dynamically; keep the main bundle small.
+- Customer-facing documents (`src/lib/statement.ts` → `excel/exportStatement.ts`, `pdf/statementPdf.ts`) are built
+  from a pure `Statement` object so Excel and PDF always agree; `rangeLabel`/`formatDate` in `src/lib/period.ts`
+  keep dates locale-independent (`DD.MM.YYYY`). Add new document types the same way (data first, renderers after).
 
 ## Changing the data model
 
