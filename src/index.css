@@ -492,7 +492,25 @@ pre.log {
   cursor: pointer;
 }
 .chips button[aria-pressed='true'] {
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  background: #dbeafe;
   border-color: var(--primary);
   color: var(--primary);
+}
+@supports (background: color-mix(in srgb, red 10%, transparent)) {
+  .chips button[aria-pressed='true'] {
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+  }
+}
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -14px;
+  padding: 0 14px;
+}
+table.preview th,
+table.preview td.nowrap {
+  white-space: nowrap;
+}
+table.preview td.wrap {
+  min-width: 180px;
 }

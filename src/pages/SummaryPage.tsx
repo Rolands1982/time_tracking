@@ -26,6 +26,31 @@ import {
 import { formatMoney, todayIso } from '../lib/time'
 
 type Format = 'pdf' | 'xlsx'
+const NUMERIC = new Set<StatementColumn>(['hours', 'rate', 'amount'])
+const COLUMN_LABEL = Object.fromEntries(STATEMENT_COLUMNS.map((c) => [c.key, c.label])) as Record<StatementColumn, string>
+
+function previewCell(r: Statement['rows'][number], c: StatementColumn, st: Statement) {
+  switch (c) {
+    case 'date':
+      return formatDate(r.date)
+    case 'time':
+      return `${r.startTime}–${r.endTime}`
+    case 'project':
+      return r.project
+    case 'category':
+      return r.category ?? ''
+    case 'description':
+      return describe(r, st.columns) || <span className="muted">(no description)</span>
+    case 'hours':
+      return hours(r.minutes).toFixed(2)
+    case 'rate':
+      return r.billable ? formatMoney(r.rate, st.currency) : '–'
+    case 'amount':
+      return r.billable ? formatMoney(r.amount, st.currency) : '–'
+    default:
+      return <span className={`badge ${r.isBilled ? 'billed' : r.billable ? 'open' : ''}`}>{invoiceText(r, formatDate)}</span>
+  }
+}
 const FILTERS: StatementFilter[] = ['all', 'unbilled', 'billed']
 const PREVIEW_ROWS = 200
 const PDF_MIME = 'application/pdf'
@@ -162,6 +187,7 @@ export default function SummaryPage() {
             <div className="chips" role="group" aria-label="Columns">
               {STATEMENT_COLUMNS.map((c) => (
                 <button key={c.key} type="button" aria-pressed={has(c.key)} onClick={() => toggleColumn(c.key)}>
+                  {has(c.key) ? '✓ ' : ''}
                   {c.label}
                 </button>
               ))}
@@ -268,44 +294,30 @@ export default function SummaryPage() {
             {statement.rows.length === 0 ? (
               <p className="muted">No entries for {statement.clientName} in this period.</p>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    {(has('date') || has('time')) && <th>{has('date') ? 'Date' : 'Time'}</th>}
-                    {(has('project') || has('category') || has('description') || has('invoice')) && <th>Work</th>}
-                    {has('hours') && <th className="num">Hours</th>}
-                    {(has('amount') || has('rate')) && <th className="num">{has('amount') ? 'Amount' : 'Rate'}</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {statement.rows.slice(0, PREVIEW_ROWS).map((r, i) => (
-                    <tr key={i} className={r.billable ? '' : 'muted'}>
-                      {(has('date') || has('time')) && (
-                        <td className="nowrap">
-                          {has('date') && formatDate(r.date)}
-                          {has('time') && (
-                            <div className="muted small">
-                              {r.startTime}–{r.endTime}
-                            </div>
-                          )}
-                        </td>
-                      )}
-                      {(has('project') || has('category') || has('description') || has('invoice')) && (
-                        <td>
-                          {has('project') && r.project && <strong>{r.project} · </strong>}
-                          {has('category') && r.category && <span className="badge">{r.category}</span>}{has('category') && r.category && ' '}
-                          {has('description') && (describe(r, columns) || <span className="muted">(no description)</span>)}
-                          {has('invoice') && <span className={`badge ${r.isBilled ? 'billed' : r.billable ? 'open' : ''}`}> {invoiceText(r, formatDate)}</span>}
-                        </td>
-                      )}
-                      {has('hours') && <td className="num">{hours(r.minutes).toFixed(2)}</td>}
-                      {(has('amount') || has('rate')) && (
-                        <td className="num">{!r.billable ? '–' : has('amount') ? formatMoney(r.amount, statement.currency) : formatMoney(r.rate, statement.currency)}</td>
-                      )}
+              <div className="table-scroll">
+                <table className="preview" data-testid="preview-table">
+                  <thead>
+                    <tr>
+                      {columns.map((c) => (
+                        <th key={c} className={NUMERIC.has(c) ? 'num' : ''}>
+                          {COLUMN_LABEL[c]}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {statement.rows.slice(0, PREVIEW_ROWS).map((r, i) => (
+                      <tr key={i} className={r.billable ? '' : 'muted'}>
+                        {columns.map((c) => (
+                          <td key={c} className={NUMERIC.has(c) ? 'num' : c === 'description' ? 'wrap' : 'nowrap'}>
+                            {previewCell(r, c, statement)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
             {statement.rows.length > PREVIEW_ROWS && (
               <p className="muted small">Showing the first {PREVIEW_ROWS} of {statement.rows.length} entries; the exported file contains all of them.</p>
