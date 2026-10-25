@@ -113,6 +113,8 @@ export interface Settings {
   roundingMode?: 'billing' | 'exact'
   /** Columns shown in customer summaries (keys from src/lib/statement.ts); unset = default set. */
   summaryColumns?: string[]
+  /** E-mail preferences for documents sent from the app. */
+  mail?: { signature?: string; copyToSender?: boolean }
   /** Legacy setting from before the billing rules; ignored. */
   timerRoundingMin?: number
   sync?: SyncState

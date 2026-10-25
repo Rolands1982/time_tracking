@@ -234,6 +234,14 @@ export default function DataPage() {
               <option value="exact">Exact minutes</option>
             </select>
           </label>
+          <label className="field">
+            <span>E-mail signature (added to messages sent from the app)</span>
+            <textarea
+              value={settings.mail?.signature ?? ''}
+              placeholder={'Best regards\nYour name, phone'}
+              onChange={(e) => updateSettings({ mail: { ...settings.mail, signature: e.target.value } })}
+            />
+          </label>
         </div>
         <div className="row between">
           <span className="small">

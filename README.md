@@ -23,7 +23,9 @@ and it behaves like a native app, including offline.
   client and period.
 - **Customer summary**: pick a client, a period (month / quarter / year / all / custom range) and which entries to
   include (all, not yet billed, billed); the app shows total hours, amount and every entry and exports the same as
-  an Excel sheet or a PDF (pdfmake with the Roboto font, loaded on demand), ready to send to the customer.
+  an Excel sheet or a PDF (pdfmake with the Roboto font, loaded on demand), ready to send to the customer:
+  download, share from the phone, or e-mail it straight from the app through your own mailbox
+  (`supabase/functions/send-mail`, a small Edge Function that talks SMTP; see `supabase/functions/README.md`).
 - **Excel import** of the existing workbooks, in English or Latvian (Date / From / Till / Total hours / Earned /
   Project / What is done? / Category / When billed?, or Datums / No / Līdz / Stundas kopā / Summa / Projekts /
   Projekta stadija / Rēķins). Handles dates carried down from the row above, `24:00` end times, the hourly rate

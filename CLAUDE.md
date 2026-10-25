@@ -41,7 +41,8 @@ src/lib       pure helpers: time/money, periods, customer summary (statement.ts)
 src/pages     Timer, Entries, Entry form, Reports, Summary (customer summary → Excel/PDF), Clients, Data
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app)
-supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view
+supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view;
+              functions/send-mail: Edge Function that e-mails documents through the owner's SMTP mailbox
 tests/unit    vitest (fake-indexeddb); tests/e2e: Playwright smoke test on a phone viewport
 ```
 
@@ -66,6 +67,9 @@ Conventions that matter:
 - Excel import is header-driven (English and Latvian aliases in `importWorkbook.ts`) and idempotent via
   `importKey`. New sheet layouts get an alias and a fixture sheet plus a test, not a special case in the UI.
 - Heavy libraries (ExcelJS, pdfmake + fonts, Supabase client) are imported dynamically; keep the main bundle small.
+- E-mail goes through `src/lib/mail.ts` → Edge Function `send-mail` (Deno, denomailer). Its request validation
+  (`supabase/functions/send-mail/validate.ts`) is plain TypeScript imported by both the function and the app, so
+  keep it free of Deno and Node APIs. Mailbox credentials are function secrets only.
 - Customer-facing documents (`src/lib/statement.ts` → `excel/exportStatement.ts`, `pdf/statementPdf.ts`) are built
   from a pure `Statement` object so Excel and PDF always agree; `rangeLabel`/`formatDate` in `src/lib/period.ts`
   keep dates locale-independent (`DD.MM.YYYY`). Add new document types the same way (data first, renderers after).
@@ -84,4 +88,4 @@ Conventions that matter:
 - The app lives at `https://rolands1982.github.io/time_tracking/` (base path `/time_tracking/`).
 - Pages must be enabled with source "GitHub Actions" (done). The `configure-pages` step is non-fatal.
 - The Supabase project URL and publishable key come from `.env`; the schema is applied manually from
-  `supabase/schema.sql`.
+  `supabase/schema.sql`. Edge Functions are deployed manually too (dashboard editor or CLI); note it in the PR.

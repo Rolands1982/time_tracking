@@ -119,4 +119,14 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   const pdfFile = await pdf
   expect(pdfFile.suggestedFilename()).toBe('Summary_Polystylex_all.pdf')
   expect((await readFile((await pdfFile.path())!)).subarray(0, 5).toString()).toBe('%PDF-')
+
+  // E-mail opens a compose form with the client's details, the summary text and the attachment.
+  await page.getByTestId('summary-email').click()
+  const compose = page.getByTestId('compose')
+  await expect(compose.getByLabel('Subject')).toHaveValue('Time summary Polystylex – All time')
+  await expect(compose.getByLabel('Message')).toHaveValue(/please find attached the time summary for All time/)
+  await expect(compose.getByText(/Attachment: .*Summary_Polystylex_all\.pdf/)).toBeVisible()
+  await compose.getByLabel('To').fill('client@example.lv')
+  await compose.getByRole('button', { name: 'Cancel' }).click()
+  await expect(compose).toHaveCount(0)
 })
