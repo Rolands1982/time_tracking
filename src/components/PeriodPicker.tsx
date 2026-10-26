@@ -1,6 +1,4 @@
-import { periodLabel, stepAnchor, type Period, type PeriodState } from '../lib/period'
-
-const PERIODS: Period[] = ['month', 'quarter', 'year', 'all', 'custom']
+import { PERIODS, periodLabel, stepPeriod, type PeriodState } from '../lib/period'
 
 export default function PeriodPicker({ value, onChange }: { value: PeriodState; onChange: (next: PeriodState) => void }) {
   return (
@@ -12,13 +10,13 @@ export default function PeriodPicker({ value, onChange }: { value: PeriodState; 
           </button>
         ))}
       </div>
-      {(value.period === 'month' || value.period === 'quarter' || value.period === 'year') && (
+      {(value.period === 'week' || value.period === 'month' || value.period === 'quarter' || value.period === 'year') && (
         <div className="month-nav">
-          <button type="button" className="btn" onClick={() => onChange({ ...value, anchor: stepAnchor(value, -1) })} aria-label="Previous period">
+          <button type="button" className="btn" onClick={() => onChange(stepPeriod(value, -1))} aria-label="Previous period">
             ‹
           </button>
           <strong>{periodLabel(value)}</strong>
-          <button type="button" className="btn" onClick={() => onChange({ ...value, anchor: stepAnchor(value, 1) })} aria-label="Next period">
+          <button type="button" className="btn" onClick={() => onChange(stepPeriod(value, 1))} aria-label="Next period">
             ›
           </button>
         </div>
