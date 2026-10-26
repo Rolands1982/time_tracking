@@ -15,14 +15,30 @@ export interface Synced {
   updatedAt?: string
 }
 
+/** An hourly rate valid from a date on (until the next period starts). */
+export interface RatePeriod {
+  /** YYYY-MM-DD */
+  from: string
+  rate: number
+}
+
 export interface Client extends Synced {
   id?: number
+  /** Short name used in the app. */
   name: string
-  /** Default hourly rate applied to new entries for this client. */
+  /** Hourly rate for dates before the first rate period (and for clients without periods). */
   defaultRate: number
+  /** Rate changes over time, sorted by `from`. Use rateFor() to resolve a date. */
+  rates?: RatePeriod[]
   currency: string
   email?: string
-  /** Free text: address, VAT number, invoicing notes, etc. */
+  /** Invoice data. */
+  businessName?: string
+  registrationNumber?: string
+  vatNumber?: string
+  vatApplicable?: boolean
+  address?: string
+  /** Free text: invoicing notes, contacts, etc. */
   notes?: string
   archived?: boolean
 }
@@ -31,7 +47,7 @@ export interface Project extends Synced {
   id?: number
   clientId: number
   name: string
-  /** Overrides the client default rate when set. */
+  /** Legacy: rates are per client and period now; kept so old backups still load. */
   defaultRate?: number
   archived?: boolean
 }
@@ -113,6 +129,8 @@ export interface Settings {
   roundingMode?: 'billing' | 'exact'
   /** Columns shown in customer summaries (keys from src/lib/statement.ts); unset = default set. */
   summaryColumns?: string[]
+  /** E-mail preferences for documents sent from the app. */
+  mail?: { signature?: string; copyToSender?: boolean }
   /** Legacy setting from before the billing rules; ignored. */
   timerRoundingMin?: number
   sync?: SyncState

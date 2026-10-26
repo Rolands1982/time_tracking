@@ -104,6 +104,21 @@ describe('push and pull between two devices', () => {
     expect((await getSettings(b)).sync?.cursors?.entries).toBeTruthy()
   })
 
+  it('replicates invoice data and rate periods of a client', async () => {
+    const { client } = await seed(a)
+    await a.clients.put({ ...client, businessName: 'Acme SIA', registrationNumber: '40001234567', vatNumber: 'LV40001234567', vatApplicable: false, address: 'Brīvības iela 1\nRīga', rates: [{ from: '2026-01-01', rate: 65 }] })
+    await new SyncEngine(remote, a).run()
+    const row = [...remote.tables.clients.values()][0]
+    expect(row).toMatchObject({ business_name: 'Acme SIA', registration_number: '40001234567', vat_number: 'LV40001234567', vat_applicable: false, rates: [{ from: '2026-01-01', rate: 65 }] })
+    await new SyncEngine(remote, b).run()
+    const copy = (await b.clients.toArray())[0]
+    expect(copy).toMatchObject({ businessName: 'Acme SIA', registrationNumber: '40001234567', vatNumber: 'LV40001234567', vatApplicable: false, address: 'Brīvības iela 1\nRīga', rates: [{ from: '2026-01-01', rate: 65 }] })
+    // A server copy where the JSON column comes back as a string, or holds junk, still loads.
+    remote.edit('clients', client.uid!, { rates: '[{"from":"2027-01-01","rate":"80"},{"nope":1}]', updated_at: '2040-01-01T00:00:00.000Z' })
+    await new SyncEngine(remote, b).run()
+    expect((await b.clients.toArray())[0].rates).toEqual([{ from: '2027-01-01', rate: 80 }])
+  })
+
   it('propagates edits, billing and deletions in both directions', async () => {
     const { id } = await seed(a)
     await new SyncEngine(remote, a).run()

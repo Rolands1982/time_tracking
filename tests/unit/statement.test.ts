@@ -5,7 +5,7 @@ import type { Client, Project, TimeEntry } from '../../src/db/types'
 import { buildStatement, DEFAULT_COLUMNS, normalizeColumns, statementFileName } from '../../src/lib/statement'
 import { buildStatementWorkbook } from '../../src/lib/excel/exportStatement'
 import { statementDocDefinition } from '../../src/lib/pdf/statementPdf'
-import { periodFromParams, periodLabel, periodRange, periodToParams, rangeLabel } from '../../src/lib/period'
+import { isoWeek, periodFromParams, periodLabel, periodRange, periodToParams, rangeLabel, stepPeriod, weekRange } from '../../src/lib/period'
 
 const client: Client = { id: 1, name: 'Polystylex SIA', defaultRate: 60, currency: 'EUR' }
 const other: Client = { id: 2, name: 'Other', defaultRate: 10, currency: 'EUR' }
@@ -141,6 +141,22 @@ describe('periods', () => {
     expect(periodRange({ period: 'custom', anchor: '2026-05', custom: { from: '2026-01-15', to: '' } })).toEqual({ from: '2026-01-15', to: undefined })
     expect(periodLabel({ period: 'quarter', anchor: '2026-05', custom: { from: '', to: '' } })).toBe('Q2 2026')
     expect(rangeLabel({ to: '2026-01-31' })).toBe('until 31.01.2026')
+  })
+
+  it('selects Monday-to-Sunday weeks with ISO week numbers', () => {
+    expect(weekRange('2026-10-26')).toEqual({ from: '2026-10-26', to: '2026-11-01' }) // a Monday
+    expect(weekRange('2026-11-01')).toEqual({ from: '2026-10-26', to: '2026-11-01' }) // the Sunday of the same week
+    expect(weekRange('2026-01-01')).toEqual({ from: '2025-12-29', to: '2026-01-04' })
+    expect(isoWeek('2026-10-26')).toBe(44)
+    expect(isoWeek('2026-01-01')).toBe(1)
+    expect(isoWeek('2027-01-01')).toBe(53)
+    const s = { period: 'week' as const, anchor: '2026-10', week: '2026-10-28', custom: { from: '', to: '' } }
+    expect(periodRange(s)).toEqual({ from: '2026-10-26', to: '2026-11-01' })
+    expect(periodLabel(s)).toBe('Week 44 · 26.10 – 01.11.2026')
+    expect(stepPeriod(s, -1).week).toBe('2026-10-21')
+    expect(stepPeriod({ ...s, period: 'month' }, 1).anchor).toBe('2026-11')
+    expect(periodToParams(s)).toEqual({ period: 'week', week: '2026-10-28' })
+    expect(periodFromParams((k) => ({ period: 'week', week: '2026-10-28' })[k] ?? null, { period: 'month', anchor: '2026-10', custom: { from: '', to: '' } })).toMatchObject({ period: 'week', week: '2026-10-28' })
   })
 
   it('round-trips through URL parameters', () => {

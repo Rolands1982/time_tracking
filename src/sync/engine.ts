@@ -9,7 +9,7 @@
  * ids never leave the device; relations are carried by the UUID `uid`.
  */
 import { db, getSettings, SYNC_TABLES, updateSettings, type TimeTrackingDB } from '../db/schema'
-import type { Client, Project, SyncTable, TimeEntry } from '../db/types'
+import type { Client, Project, SyncTable, TimeEntry, RatePeriod } from '../db/types'
 import type { Remote, RemoteRow } from './remote'
 
 export interface SyncResult {
@@ -30,8 +30,14 @@ function clientToRemote(c: Client) {
     id: c.uid!,
     name: c.name,
     default_rate: c.defaultRate,
+    rates: c.rates && c.rates.length ? c.rates : null,
     currency: c.currency,
     email: c.email ?? null,
+    business_name: c.businessName ?? null,
+    registration_number: c.registrationNumber ?? null,
+    vat_number: c.vatNumber ?? null,
+    vat_applicable: c.vatApplicable ?? null,
+    address: c.address ?? null,
     notes: c.notes ?? null,
     archived: Boolean(c.archived),
     updated_at: c.updatedAt ?? new Date().toISOString(),
@@ -44,7 +50,6 @@ function projectToRemote(p: Project, clientUid: string) {
     id: p.uid!,
     client_id: clientUid,
     name: p.name,
-    default_rate: p.defaultRate ?? null,
     archived: Boolean(p.archived),
     updated_at: p.updatedAt ?? new Date().toISOString(),
     deleted_at: null,
@@ -86,8 +91,14 @@ function clientFromRemote(r: RemoteRow): Omit<Client, 'id'> {
     uid: r.id,
     name: String(r.name),
     defaultRate: num(r.default_rate),
+    rates: ratePeriods(r.rates),
     currency: String(r.currency ?? 'EUR'),
     email: str(r.email),
+    businessName: str(r.business_name),
+    registrationNumber: str(r.registration_number),
+    vatNumber: str(r.vat_number),
+    vatApplicable: r.vat_applicable == null ? undefined : Boolean(r.vat_applicable),
+    address: str(r.address),
     notes: str(r.notes),
     archived: Boolean(r.archived),
     updatedAt: r.updated_at,
@@ -95,12 +106,22 @@ function clientFromRemote(r: RemoteRow): Omit<Client, 'id'> {
   }
 }
 
+/** Rate periods come back as JSON; keep only well-formed ones, sorted. */
+function ratePeriods(v: unknown): RatePeriod[] | undefined {
+  const raw = typeof v === 'string' ? (JSON.parse(v) as unknown) : v
+  if (!Array.isArray(raw)) return undefined
+  const list = raw
+    .filter((p): p is { from: string; rate: unknown } => typeof p === 'object' && p !== null && typeof (p as { from?: unknown }).from === 'string')
+    .map((p) => ({ from: p.from, rate: Number(p.rate) || 0 }))
+    .sort((a, b) => a.from.localeCompare(b.from))
+  return list.length ? list : undefined
+}
+
 function projectFromRemote(r: RemoteRow, clientId: number): Omit<Project, 'id'> {
   return {
     uid: r.id,
     clientId,
     name: String(r.name),
-    defaultRate: r.default_rate == null ? undefined : num(r.default_rate),
     archived: Boolean(r.archived),
     updatedAt: r.updated_at,
     dirty: 0,

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings, updateSettings } from '../db/schema'
 import { useSettings } from '../db/hooks'
 import { SyncEngine, type SyncResult } from './engine'
 import { getSupabase, getSyncConfig, isBuiltInConfig, resetSupabaseClient, saveSyncConfig, SupabaseRemote, type SyncConfig } from './remote'
+import { SyncContext } from './syncContext'
 
 export interface SyncUser {
   email: string
@@ -58,8 +59,15 @@ async function pendingCount(): Promise<number> {
 
 const AUTO_SYNC_DEBOUNCE_MS = 4000
 const PERIODIC_SYNC_MS = 5 * 60_000
+/** Do not hammer the server when the user flips between apps quickly. */
+const FOREGROUND_SYNC_MIN_GAP_MS = 15_000
 
-export function useSync() {
+/**
+ * The single sync controller. Mounted once by <SyncProvider> at the app root so automatic sync
+ * (after sign-in, after local changes, when back online, when the app comes to the foreground,
+ * and periodically) runs on every screen, not only while the Data screen is open.
+ */
+export function useSyncController() {
   const settings = useSettings()
   const [config, setConfig] = useState<SyncConfig | null>(() => getSyncConfig())
   const [user, setUser] = useState<SyncUser | null>(null)
@@ -133,6 +141,24 @@ export function useSync() {
     return () => clearInterval(interval)
   }, [user, online, run])
 
+  // Pull when the app returns to the foreground (phone unlocked, tab switched back).
+  useEffect(() => {
+    if (!user || !online) return
+    let last = Date.now()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - last < FOREGROUND_SYNC_MIN_GAP_MS) return
+      last = Date.now()
+      void run().catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [user, online, run])
+
   const signIn = useCallback(async (email: string, password: string) => {
     const supabase = await getSupabase()
     if (!supabase) throw new Error('Cloud sync is not configured')
@@ -174,4 +200,13 @@ export function useSync() {
     lastError: settings.sync?.lastError,
   }
   return { ...status, syncNow: run, signIn, signUp, signOut, configure }
+}
+
+export type SyncApi = ReturnType<typeof useSyncController>
+
+/** Read the app-wide sync state and actions provided by <SyncProvider>. */
+export function useSync(): SyncApi {
+  const api = useContext(SyncContext)
+  if (!api) throw new Error('useSync must be used inside <SyncProvider>')
+  return api
 }

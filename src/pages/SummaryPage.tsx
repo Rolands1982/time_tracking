@@ -8,6 +8,7 @@ import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, XLSX_MIME } from '../lib/download'
 import { periodFromParams, periodRange, periodToParams, formatDate, type PeriodState } from '../lib/period'
+import { sendMail, type MailAttachment } from '../lib/mail'
 import { canShareFiles, mailtoLink, shareFile } from '../lib/share'
 import {
   buildStatement,
@@ -64,7 +65,7 @@ async function render(st: Statement, format: Format): Promise<{ data: Blob | Arr
   return { data: await statementPdfBlob(st), name: statementFileName(st, 'pdf'), type: PDF_MIME }
 }
 
-function emailText(st: Statement): { subject: string; body: string } {
+function emailText(st: Statement, signature?: string): { subject: string; body: string } {
   const subject = `Time summary ${st.clientName} – ${st.periodLabel}`
   const body = [
     'Hello,',
@@ -72,9 +73,17 @@ function emailText(st: Statement): { subject: string; body: string } {
     `please find attached the time summary for ${st.periodLabel}:`,
     `${st.count} entries, ${hours(st.minutes).toFixed(2)} hours, ${formatMoney(st.amount, st.currency)}.`,
     '',
-    'Best regards',
+    signature?.trim() || 'Best regards',
   ].join('\n')
   return { subject, body }
+}
+
+interface Compose {
+  to: string
+  subject: string
+  text: string
+  copyToSender: boolean
+  file: MailAttachment
 }
 
 export default function SummaryPage() {
@@ -89,6 +98,7 @@ export default function SummaryPage() {
   const [format, setFormat] = useState<Format>('pdf')
   const [busy, setBusy] = useState<string | null>(null)
   const [showColumns, setShowColumns] = useState(false)
+  const [compose, setCompose] = useState<Compose | null>(null)
   const clientParam = Number(params.get('client'))
   const clientId = clientParam > 0 ? clientParam : undefined
   const columns = useMemo(() => normalizeColumns(settings.summaryColumns), [settings.summaryColumns])
@@ -130,7 +140,7 @@ export default function SummaryPage() {
     try {
       const file = await render(statement, format)
       if (action === 'share') {
-        const { subject, body } = emailText(statement)
+        const { subject, body } = emailText(statement, settings.mail?.signature)
         const result = await shareFile(new Blob([file.data], { type: file.type }), file.name, file.type, { title: subject, body })
         if (result === 'shared') toast('Shared')
         else if (result === 'unsupported') {
@@ -139,17 +149,40 @@ export default function SummaryPage() {
         }
         return
       }
-      downloadBlob(file.data, file.name, file.type)
       if (action === 'email') {
-        const { subject, body } = emailText(statement)
-        toast('File downloaded – attach it to the e-mail that opens')
-        window.location.href = mailtoLink(statement.clientEmail, subject, body)
+        const { subject, body } = emailText(statement, settings.mail?.signature)
+        setCompose({ to: statement.clientEmail ?? '', subject, text: body, copyToSender: settings.mail?.copyToSender ?? true, file: { filename: file.name, contentType: file.type, data: file.data } })
+        return
       }
+      downloadBlob(file.data, file.name, file.type)
     } catch (err) {
       toast(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(null)
     }
+  }
+
+  const send = async () => {
+    if (!compose) return
+    setBusy('send')
+    try {
+      const outcome = await sendMail({ to: compose.to, subject: compose.subject, text: compose.text, copyToSender: compose.copyToSender, attachments: [compose.file] })
+      if (outcome.ok) {
+        toast(`Sent to ${outcome.to.join(', ')}`)
+        void updateSettings({ mail: { ...settings.mail, copyToSender: compose.copyToSender } })
+        setCompose(null)
+      } else toast(outcome.error)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Fallback without the server: download the file and open the mail app with the text. */
+  const openMailApp = () => {
+    if (!compose) return
+    downloadBlob(compose.file.data, compose.file.filename, compose.file.contentType)
+    toast('File downloaded – attach it to the e-mail that opens')
+    window.location.href = mailtoLink(compose.to || undefined, compose.subject, compose.text)
   }
 
   const has = (c: StatementColumn) => columns.includes(c)
@@ -254,12 +287,54 @@ export default function SummaryPage() {
               </button>
             </div>
             <p className="muted small">
-              {shareable
-                ? 'Share… opens the phone’s share sheet with the file attached (e-mail, WhatsApp, …). '
-                : ''}
-              E-mail downloads the file and opens a new message to {statement.clientEmail ?? 'the client'} with subject and text filled in; attach the downloaded file before sending.
+              {shareable ? 'Share… opens the phone\u2019s share sheet with the file attached. ' : ''}
+              E-mail sends the file from your business mailbox to {statement.clientEmail ?? 'the client'}, with an editable message.
             </p>
           </div>
+
+          {compose && (
+            <form
+              className="card stack"
+              data-testid="compose"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void send()
+              }}
+            >
+              <h2>Send by e-mail</h2>
+              <label className="field">
+                <span>To</span>
+                <input type="text" inputMode="email" autoComplete="email" value={compose.to} onChange={(e) => setCompose({ ...compose, to: e.target.value })} placeholder="client@example.com" required />
+              </label>
+              <label className="field">
+                <span>Subject</span>
+                <input value={compose.subject} onChange={(e) => setCompose({ ...compose, subject: e.target.value })} required />
+              </label>
+              <label className="field">
+                <span>Message</span>
+                <textarea rows={7} value={compose.text} onChange={(e) => setCompose({ ...compose, text: e.target.value })} required />
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={compose.copyToSender} onChange={(e) => setCompose({ ...compose, copyToSender: e.target.checked })} />
+                Send me a copy
+              </label>
+              <p className="small muted">
+                Attachment: <strong>{compose.file.filename}</strong> ({Math.max(1, Math.round((compose.file.data instanceof Blob ? compose.file.data.size : compose.file.data.byteLength) / 1024))} KB). Sent from your business mailbox through the
+                app's mail function; you need to be signed in to cloud sync.
+              </p>
+              <div className="actions">
+                <button type="button" className="btn" onClick={() => setCompose(null)} disabled={busy === 'send'}>
+                  Cancel
+                </button>
+                <button type="button" className="btn" onClick={openMailApp} disabled={busy === 'send'} title="Without attachment; attach the downloaded file yourself">
+                  Open in mail app
+                </button>
+                <button type="submit" className="btn primary" disabled={busy === 'send'} data-testid="send-mail">
+                  {busy === 'send' ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </form>
+          )}
 
           {statement.byProject.length > 1 && (
             <>

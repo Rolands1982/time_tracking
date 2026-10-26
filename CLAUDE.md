@@ -41,7 +41,8 @@ src/lib       pure helpers: time/money, periods, customer summary (statement.ts)
 src/pages     Timer, Entries, Entry form, Reports, Summary (customer summary → Excel/PDF), Clients, Data
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app)
-supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view
+supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view;
+              functions/send-mail: Edge Function that e-mails documents through the owner's SMTP mailbox
 tests/unit    vitest (fake-indexeddb); tests/e2e: Playwright smoke test on a phone viewport
 ```
 
@@ -52,12 +53,19 @@ Conventions that matter:
 - `durationMin` and `amount` are derived and cached; always create/update entries through `src/db/repo.ts`
   (`addEntry`, `updateEntry`, `setBilled`, `deleteEntry`) so derived fields, sync flags and tombstones stay right.
 - `billable === false` marks work never to be invoiced; `undefined` means billable. Use `isBillable()`.
+- Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
+  `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
+  is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.
+- Clients hold the invoice data (`businessName`, `registrationNumber`, `vatNumber`, `vatApplicable`, `address`);
+  invoices will read it from there.
 - **Billing normalisation** (`src/lib/rounding.ts`): records keep real `startTime`/`endTime`/`durationMin`. New
   records also get `billedStartTime`/`billedEndTime`/`billedMin`: start snapped to the nearest 10 minutes, minutes
   in 15-minute steps counting a step once 5 minutes into it (7–19 → 15, 20–34 → 30, …); under 7 minutes stays as
   is and is marked non-billable. `amount`, open balances, statements and the master file use `billedMinutes(e)`
   (= `billedMin ?? durationMin`), so records from before the rules are billed at their real minutes and are never
   rewritten. `settings.roundingMode = 'exact'` stops deriving the columns for new records.
+- Automatic sync lives in `useSyncController()` mounted once by `<SyncProvider>` in `App.tsx`; screens read it
+  with `useSync()`. Never mount the controller twice.
 - Every synced record has `uid` (UUID shared with the cloud) and `dirty`; local numeric `id`s never leave the
   device. Dexie hooks set these; writes made by the sync engine go through `db.remoteTransaction()` to bypass them.
 - Deleting a synced record must go through `db.deleteSynced()` so a tombstone is recorded. Restore and "delete all"
@@ -66,6 +74,9 @@ Conventions that matter:
 - Excel import is header-driven (English and Latvian aliases in `importWorkbook.ts`) and idempotent via
   `importKey`. New sheet layouts get an alias and a fixture sheet plus a test, not a special case in the UI.
 - Heavy libraries (ExcelJS, pdfmake + fonts, Supabase client) are imported dynamically; keep the main bundle small.
+- E-mail goes through `src/lib/mail.ts` → Edge Function `send-mail` (Deno, denomailer). Its request validation
+  (`supabase/functions/send-mail/validate.ts`) is plain TypeScript imported by both the function and the app, so
+  keep it free of Deno and Node APIs. Mailbox credentials are function secrets only.
 - Customer-facing documents (`src/lib/statement.ts` → `excel/exportStatement.ts`, `pdf/statementPdf.ts`) are built
   from a pure `Statement` object so Excel and PDF always agree; `rangeLabel`/`formatDate` in `src/lib/period.ts`
   keep dates locale-independent (`DD.MM.YYYY`). Add new document types the same way (data first, renderers after).
@@ -84,4 +95,4 @@ Conventions that matter:
 - The app lives at `https://rolands1982.github.io/time_tracking/` (base path `/time_tracking/`).
 - Pages must be enabled with source "GitHub Actions" (done). The `configure-pages` step is non-fatal.
 - The Supabase project URL and publishable key come from `.env`; the schema is applied manually from
-  `supabase/schema.sql`.
+  `supabase/schema.sql`. Edge Functions are deployed manually too (dashboard editor or CLI); note it in the PR.

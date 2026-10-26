@@ -5,7 +5,7 @@
  */
 import ExcelJS from 'exceljs'
 import type { Client, Project, TimeEntry } from '../../db/types'
-import { billedMinutes, isBillable } from '../../db/repo'
+import { billedMinutes, isBillable, sortedRates } from '../../db/repo'
 import { hmToMinutes, monthKey } from '../time'
 
 export interface MasterData {
@@ -170,14 +170,22 @@ export function buildMasterWorkbook(data: MasterData): ExcelJS.Workbook {
 
   // ------------------------------------------------------------------ Clients
   const cs = wb.addWorksheet('Clients')
-  cs.addRow(['Client', 'Default rate', 'Currency', 'Email', 'Notes', 'Projects'])
-  styleHeader(cs, [24, 12, 10, 28, 40, 40])
+  cs.addRow(['Client', 'Default rate', 'Rate changes', 'Currency', 'Email', 'Business name', 'Registration no.', 'VAT no.', 'VAT', 'Address', 'Notes', 'Projects'])
+  styleHeader(cs, [24, 12, 28, 10, 28, 28, 16, 16, 6, 36, 40, 40])
   for (const c of data.clients) {
     cs.addRow([
       c.name,
       c.defaultRate,
+      sortedRates(c)
+        .map((r) => `${r.rate} from ${r.from}`)
+        .join('; '),
       c.currency,
       c.email ?? '',
+      c.businessName ?? '',
+      c.registrationNumber ?? '',
+      c.vatNumber ?? '',
+      c.vatApplicable == null ? '' : c.vatApplicable ? 'Yes' : 'No',
+      c.address ?? '',
       c.notes ?? '',
       data.projects
         .filter((p) => p.clientId === c.id)

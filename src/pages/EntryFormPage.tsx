@@ -93,7 +93,7 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
   const navigate = useNavigate()
   const toast = useToast()
   const settings = useSettings()
-  const { clientById, projectById } = useLookups()
+  const { clientById } = useLookups()
   const categories = useLiveQuery(
     async () => [...new Set((await db.entries.toArray()).map((e) => e.category).filter(Boolean))] as string[],
     [],
@@ -103,8 +103,7 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
   const [error, setError] = useState<string | null>(null)
 
   const client = form.clientId != null ? clientById.get(form.clientId) : undefined
-  const project = form.projectId != null ? projectById.get(form.projectId) : undefined
-  const suggestedRate = effectiveRate(client, project)
+  const suggestedRate = effectiveRate(client, form.date)
   const rateText = form.hourlyRate ?? String(suggestedRate)
   const rateNum = Number(rateText)
 

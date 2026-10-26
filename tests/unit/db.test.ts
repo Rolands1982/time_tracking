@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB, getSettings, updateSettings } from '../../src/db/schema'
 import {
   addEntry,
+  effectiveRate,
   findOrCreateClient,
   findOrCreateProject,
   queryEntries,
+  rateFor,
   setBilled,
   startTimer,
   stopTimer,
@@ -53,6 +55,20 @@ describe('entries', () => {
     const sept = await queryEntries({ from: '2026-09-01', to: '2026-09-30' }, db)
     expect(sept).toHaveLength(2)
     expect(totals(await queryEntries({}, db))).toMatchObject({ count: 3, durationMin: 180, amount: 120, billedAmount: 80, unbilledAmount: 40 })
+  })
+
+  it('resolves the hourly rate by date from the client rate periods', async () => {
+    const c = await findOrCreateClient('Acme', { defaultRate: 50 }, db)
+    expect(rateFor(c, '2026-01-01')).toBe(50)
+    await db.clients.put({ ...c, rates: [{ from: '2026-03-01', rate: 70 }, { from: '2025-01-01', rate: 60 }] })
+    const updated = (await db.clients.get(c.id!))!
+    expect(rateFor(updated, '2024-12-31')).toBe(50)
+    expect(rateFor(updated, '2025-01-01')).toBe(60)
+    expect(rateFor(updated, '2026-02-28')).toBe(60)
+    expect(rateFor(updated, '2026-03-01')).toBe(70)
+    expect(rateFor(updated, '2030-01-01')).toBe(70)
+    expect(effectiveRate(updated, '2026-06-01')).toBe(70)
+    expect(rateFor(undefined, '2026-06-01')).toBe(0)
   })
 
   it('finds clients case-insensitively and projects per client', async () => {

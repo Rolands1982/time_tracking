@@ -1,5 +1,5 @@
 import { db, getSettings, updateSettings, type TimeTrackingDB } from './schema'
-import type { Client, Project, RunningTimer, TimeEntry } from './types'
+import type { Client, Project, RatePeriod, RunningTimer, TimeEntry } from './types'
 import { roundInterval } from '../lib/rounding'
 import { computeAmount, durationMinutes, toHm, toIsoDate } from '../lib/time'
 
@@ -121,7 +121,7 @@ export async function findOrCreateClient(
 export async function findOrCreateProject(
   clientId: number,
   name: string,
-  defaults: Partial<Project> = {},
+  _defaults: Partial<Project> = {},
   database: TimeTrackingDB = db,
 ): Promise<Project> {
   const trimmed = name.trim()
@@ -130,15 +130,30 @@ export async function findOrCreateProject(
     (p) => p.name.toLowerCase() === trimmed.toLowerCase(),
   )
   if (existing) return existing
-  const project: Project = { clientId, name: trimmed, defaultRate: defaults.defaultRate }
+  const project: Project = { clientId, name: trimmed }
   project.id = (await database.projects.add(project)) as number
   return project
 }
 
-/** The rate that applies to a client/project combination. */
-export function effectiveRate(client?: Client, project?: Project): number {
-  if (project?.defaultRate != null && project.defaultRate > 0) return project.defaultRate
-  return client?.defaultRate ?? 0
+/** Rate periods sorted by start date, without blanks. */
+export function sortedRates(client: Pick<Client, 'rates'>): RatePeriod[] {
+  return (client.rates ?? []).filter((r) => r.from && Number.isFinite(r.rate)).sort((a, b) => a.from.localeCompare(b.from))
+}
+
+/** The hourly rate a client is charged on a given date: the latest period starting on or before it, else the default rate. */
+export function rateFor(client: Pick<Client, 'defaultRate' | 'rates'> | undefined, date: string): number {
+  if (!client) return 0
+  let rate = client.defaultRate ?? 0
+  for (const p of sortedRates(client)) {
+    if (p.from <= date) rate = p.rate
+    else break
+  }
+  return rate
+}
+
+/** The rate to suggest for a new entry of a client on a date. Projects no longer carry rates. */
+export function effectiveRate(client: Client | undefined, date: string): number {
+  return rateFor(client, date)
 }
 
 // ---------------------------------------------------------------- timer

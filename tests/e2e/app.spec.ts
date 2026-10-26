@@ -8,10 +8,10 @@ test.describe.configure({ mode: 'serial' })
 
 async function addClient(page: Page, name: string, rate: string) {
   await page.getByRole('link', { name: 'Clients' }).click()
-  await page.getByRole('button', { name: '+ Add' }).click()
-  await page.getByLabel('Name').fill(name)
-  await page.getByLabel('Hourly rate').fill(rate)
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('link', { name: '+ Add' }).click()
+  await page.getByLabel(/^Name/).fill(name)
+  await page.getByLabel('Hourly rate', { exact: true }).fill(rate)
+  await page.getByTestId('save-client').click()
   await expect(page.getByText(name, { exact: true })).toBeVisible()
 }
 
@@ -40,12 +40,26 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByRole('button', { name: 'Discard' }).click()
   await expect(page.getByTestId('start')).toBeVisible()
 
-  // Manual entry with all fields, dated in the current month so the Entries screen shows it by default.
+  // A rate change from the first of this month: entries before it keep the old rate.
   const now = new Date()
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthLabel = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  await page.getByRole('link', { name: 'Clients' }).click()
+  await page.getByText('Acme', { exact: true }).click()
+  await page.getByRole('button', { name: '+ Rate change from a date' }).click()
+  await page.getByLabel('Valid from').fill(`${ym}-01`)
+  await page.getByLabel('Rate', { exact: true }).fill('90')
+  await page.getByTestId('save-client').click()
+  await expect(page.getByText('Client saved')).toBeVisible()
+  await expect(page.getByText(/Today's rate: €90\.00\/h/)).toBeVisible()
+
+  // Manual entry with all fields, dated in the current month so the Entries screen shows it by default.
+  await page.getByRole('link', { name: 'Timer' }).click()
   await page.getByRole('link', { name: '+ Add entry' }).click()
+  await page.getByLabel('Date').fill('2020-01-15')
+  await expect(page.getByLabel('Hourly rate')).toHaveValue('80')
   await page.getByLabel('Date').fill(`${ym}-05`)
+  await expect(page.getByLabel('Hourly rate')).toHaveValue('90')
   await page.getByLabel('Start time').fill('22:00')
   await page.getByLabel('End time').fill('00:30')
   await expect(page.getByText('Duration 2h 30m (ends after midnight)')).toBeVisible()
@@ -119,4 +133,14 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   const pdfFile = await pdf
   expect(pdfFile.suggestedFilename()).toBe('Summary_Polystylex_all.pdf')
   expect((await readFile((await pdfFile.path())!)).subarray(0, 5).toString()).toBe('%PDF-')
+
+  // E-mail opens a compose form with the client's details, the summary text and the attachment.
+  await page.getByTestId('summary-email').click()
+  const compose = page.getByTestId('compose')
+  await expect(compose.getByLabel('Subject')).toHaveValue('Time summary Polystylex – All time')
+  await expect(compose.getByLabel('Message')).toHaveValue(/please find attached the time summary for All time/)
+  await expect(compose.getByText(/Attachment: .*Summary_Polystylex_all\.pdf/)).toBeVisible()
+  await compose.getByLabel('To').fill('client@example.lv')
+  await compose.getByRole('button', { name: 'Cancel' }).click()
+  await expect(compose).toHaveCount(0)
 })

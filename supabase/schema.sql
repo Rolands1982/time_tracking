@@ -33,6 +33,13 @@ create table if not exists public.clients (
   synced_at     timestamptz not null default now(),
   deleted_at    timestamptz
 );
+-- Columns added after the first release (no-ops on a fresh schema).
+alter table public.clients add column if not exists rates jsonb;
+alter table public.clients add column if not exists business_name text;
+alter table public.clients add column if not exists registration_number text;
+alter table public.clients add column if not exists vat_number text;
+alter table public.clients add column if not exists vat_applicable boolean;
+alter table public.clients add column if not exists address text;
 create index if not exists clients_user_synced on public.clients (user_id, synced_at);
 drop trigger if exists clients_synced_at on public.clients;
 create trigger clients_synced_at before insert or update on public.clients

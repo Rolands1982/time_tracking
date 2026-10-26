@@ -28,7 +28,7 @@ function useNow(active: boolean): number {
 export default function TimerPage() {
   const settings = useSettings()
   const timer = settings.runningTimer
-  const { clientById, projectById, clientName, projectName } = useLookups()
+  const { clientById, clientName, projectName } = useLookups()
   const toast = useToast()
   const navigate = useNavigate()
 
@@ -40,11 +40,7 @@ export default function TimerPage() {
   const now = useNow(Boolean(timer))
 
   const activeClientId = timer ? timer.clientId : draftClientId
-  const activeProjectId = timer ? timer.projectId : draftProjectId
-  const rate = effectiveRate(
-    activeClientId != null ? clientById.get(activeClientId) : undefined,
-    activeProjectId != null ? projectById.get(activeProjectId) : undefined,
-  )
+  const rate = effectiveRate(activeClientId != null ? clientById.get(activeClientId) : undefined, todayIso())
   const currency = (activeClientId != null && clientById.get(activeClientId)?.currency) || settings.defaultCurrency
 
   const today = todayIso()
