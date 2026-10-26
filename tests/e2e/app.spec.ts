@@ -12,7 +12,13 @@ async function addClient(page: Page, name: string, rate: string) {
   await page.getByLabel(/^Name/).fill(name)
   await page.getByLabel('Hourly rate', { exact: true }).fill(rate)
   await page.getByTestId('save-client').click()
-  await expect(page.getByText(name, { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Clients' })).toBeVisible()
+  await expect(clientLink(page, name)).toBeVisible()
+}
+
+/** The client's row on the Clients screen (other screens also show the client name). */
+function clientLink(page: Page, name: string) {
+  return page.locator('.card.tight').getByRole('link', { name: new RegExp(`^${name}\\b`) })
 }
 
 test('track time with the timer, add an entry, import Excel and see reports', async ({ page }) => {
@@ -45,7 +51,8 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthLabel = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   await page.getByRole('link', { name: 'Clients' }).click()
-  await page.getByText('Acme', { exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Clients' })).toBeVisible()
+  await clientLink(page, 'Acme').click()
   await page.getByRole('button', { name: '+ Rate change from a date' }).click()
   await page.getByLabel('Valid from').fill(`${ym}-01`)
   await page.getByLabel('Rate', { exact: true }).fill('90')
