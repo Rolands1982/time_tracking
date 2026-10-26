@@ -8,11 +8,13 @@ import EntryFormPage from './pages/EntryFormPage'
 import ReportsPage from './pages/ReportsPage'
 import SummaryPage from './pages/SummaryPage'
 import TimerPage from './pages/TimerPage'
+import SyncProvider from './sync/SyncProvider'
 
 export default function App() {
   return (
     <HashRouter>
       <ToastProvider>
+        <SyncProvider>
         <div className="app">
           <Routes>
             <Route path="/" element={<TimerPage />} />
@@ -27,6 +29,7 @@ export default function App() {
           </Routes>
         </div>
         <BottomNav />
+        </SyncProvider>
       </ToastProvider>
     </HashRouter>
   )
