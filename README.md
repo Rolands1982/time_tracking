@@ -18,7 +18,7 @@ and it behaves like a native app, including offline.
   derivation off under *Data → Settings*.
 - **Clients & projects** with default hourly rates (project rate overrides client rate).
 - **Entries screen**: month by month, grouped by day, filter by client / billed status, search in comments.
-- **Reports**: month / quarter / year / custom range, totals per client, project and month, open (not yet billed)
+- **Reports**: week / month / quarter / year / custom range, totals per client, project and month, open (not yet billed)
   amounts per client with a one-tap *Mark billed* that stamps an invoice date. Export an Excel statement for a
   client and period.
 - **Customer summary**: pick a client, a period (month / quarter / year / all / custom range) and which entries to

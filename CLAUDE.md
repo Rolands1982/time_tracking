@@ -53,12 +53,19 @@ Conventions that matter:
 - `durationMin` and `amount` are derived and cached; always create/update entries through `src/db/repo.ts`
   (`addEntry`, `updateEntry`, `setBilled`, `deleteEntry`) so derived fields, sync flags and tombstones stay right.
 - `billable === false` marks work never to be invoiced; `undefined` means billable. Use `isBillable()`.
+- Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
+  `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
+  is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.
+- Clients hold the invoice data (`businessName`, `registrationNumber`, `vatNumber`, `vatApplicable`, `address`);
+  invoices will read it from there.
 - **Billing normalisation** (`src/lib/rounding.ts`): records keep real `startTime`/`endTime`/`durationMin`. New
   records also get `billedStartTime`/`billedEndTime`/`billedMin`: start snapped to the nearest 10 minutes, minutes
   in 15-minute steps counting a step once 5 minutes into it (7–19 → 15, 20–34 → 30, …); under 7 minutes stays as
   is and is marked non-billable. `amount`, open balances, statements and the master file use `billedMinutes(e)`
   (= `billedMin ?? durationMin`), so records from before the rules are billed at their real minutes and are never
   rewritten. `settings.roundingMode = 'exact'` stops deriving the columns for new records.
+- Automatic sync lives in `useSyncController()` mounted once by `<SyncProvider>` in `App.tsx`; screens read it
+  with `useSync()`. Never mount the controller twice.
 - Every synced record has `uid` (UUID shared with the cloud) and `dirty`; local numeric `id`s never leave the
   device. Dexie hooks set these; writes made by the sync engine go through `db.remoteTransaction()` to bypass them.
 - Deleting a synced record must go through `db.deleteSynced()` so a tombstone is recorded. Restore and "delete all"
