@@ -28,7 +28,13 @@ export default function ReportsPage() {
     return rows
   }, [range.from, range.to], [] as TimeEntry[])
 
-  const includeNonBillable = settings.reportsIncludeNonBillable ?? false
+  // The click takes effect at once; the setting persists in the background and wins after a reload.
+  const [includeOverride, setIncludeOverride] = useState<boolean | null>(null)
+  const includeNonBillable = includeOverride ?? settings.reportsIncludeNonBillable ?? false
+  const setIncludeNonBillable = (on: boolean) => {
+    setIncludeOverride(on)
+    void updateSettings({ reportsIncludeNonBillable: on })
+  }
   const filtered = useMemo(
     () => entries.filter((e) => (clientId == null ? true : e.clientId === clientId)).filter((e) => includeNonBillable || isBillable(e)),
     [entries, clientId, includeNonBillable],
@@ -82,7 +88,7 @@ export default function ReportsPage() {
           ))}
         </select>
         <label className="check">
-          <input type="checkbox" checked={includeNonBillable} onChange={(e) => updateSettings({ reportsIncludeNonBillable: e.target.checked })} data-testid="include-non-billable" />
+          <input type="checkbox" checked={includeNonBillable} onChange={(e) => setIncludeNonBillable(e.target.checked)} data-testid="include-non-billable" />
           Include non-billable hours
         </label>
         <div className="stat-grid">
