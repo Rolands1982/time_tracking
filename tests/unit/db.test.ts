@@ -71,6 +71,14 @@ describe('entries', () => {
     expect(rateFor(undefined, '2026-06-01')).toBe(0)
   })
 
+  it('counts non-billable work in the hours but never in the amounts', async () => {
+    const c = await findOrCreateClient('Acme', { defaultRate: 60 }, db)
+    await addEntry({ date: '2026-09-01', startTime: '09:00', endTime: '10:00', clientId: c.id!, hourlyRate: 60, comments: '', isBilled: false }, db)
+    await addEntry({ date: '2026-09-01', startTime: '10:00', endTime: '10:30', clientId: c.id!, hourlyRate: 60, comments: 'goodwill', isBilled: false, billable: false }, db)
+    const t = totals(await queryEntries({}, db))
+    expect(t).toMatchObject({ count: 2, billedMin: 90, nonBillableMin: 30, nonBillableCount: 1, amount: 60, unbilledAmount: 60, unbilledMin: 60 })
+  })
+
   it('finds clients case-insensitively and projects per client', async () => {
     const a = await findOrCreateClient('Acme', {}, db)
     const b = await findOrCreateClient('acme ', {}, db)

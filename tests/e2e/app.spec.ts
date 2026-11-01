@@ -108,6 +108,11 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByRole('link', { name: 'Reports' }).click()
   await page.getByRole('button', { name: 'All' }).click()
   await expect(page.getByRole('cell', { name: /Polystylex \(/ })).toBeVisible()
+  // Non-billable work is left out of the hours unless asked for (the fixture has one non-billable hour).
+  const hoursBefore = Number(await page.getByTestId('report-hours').textContent())
+  await page.getByTestId('include-non-billable').check()
+  await expect(page.getByTestId('report-hours')).toHaveText((hoursBefore + 1).toFixed(2))
+  await page.getByTestId('include-non-billable').uncheck()
   await page.getByRole('button', { name: 'Mark billed' }).first().click()
   await expect(page.getByText(/entries marked as billed/)).toBeVisible()
 
