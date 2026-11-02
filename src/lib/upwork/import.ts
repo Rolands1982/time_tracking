@@ -206,7 +206,14 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
   const parsedTx = (file.transactions ?? []).map(parseTransaction)
   const fixedContracts = new Set(parsedTx.filter((t) => t.type === 'fixed' && t.contractId).map((t) => t.contractId!))
   for (const t of parsedTx) if (t.type === 'hourly' && t.contractId) fixedContracts.delete(t.contractId)
-  for (const t of parsedTx) if (!t.contractId && t.termId && termToContract.has(t.termId)) t.contractId = termToContract.get(t.termId)
+  // Fee rows name the term; hourly invoices name the contract or, after a rate change, the term.
+  for (const t of parsedTx) {
+    if (!t.contractId && t.termId && termToContract.has(t.termId)) t.contractId = termToContract.get(t.termId)
+    else if (t.contractId && !contracts.has(t.contractId) && termToContract.has(t.contractId)) {
+      t.termId ??= t.contractId
+      t.contractId = termToContract.get(t.contractId)
+    }
+  }
 
   await database.transaction('rw', [database.clients, database.projects, database.entries, database.upworkTransactions, database.settings, database.tombstones], async () => {
     const clients = await database.clients.toArray()

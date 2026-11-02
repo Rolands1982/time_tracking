@@ -28,6 +28,8 @@ const file: UpworkImportFile = {
     { recordId: '960041233', accountingSubtype: 'Service Fee', type: 'APAdjustment', description: 'Service Fee\nContract ID: 42838462\nContract title: RPA Developer\nClient: Northwind Supply\nAmount: \n$2973.33 USD x 10% = $297.33 USD\nNotes: Invoice from Upwork for T960041135', transactionAmount: { currency: 'USD', rawValue: '-297.33' }, transactionCreationDate: '2026-10-18T00:00:00+0000', assignmentCompanyName: 'Northwind Supply' },
     { recordId: '961135619', accountingSubtype: 'Withdrawal', type: 'APPayment', description: 'Withdrawal - Direct to Local Bank Transfer: xxxx-9485', transactionAmount: { currency: 'USD', rawValue: '2688.51' }, transactionCreationDate: '2026-10-23T00:00:00+0000' },
     { recordId: '961135620', accountingSubtype: 'Withdrawal Fee', type: 'APAdjustment', description: 'Withdrawal Fee - Direct to Local Bank', transactionAmount: { currency: 'USD', rawValue: '-0.99' }, transactionCreationDate: '2026-10-23T00:00:00+0000' },
+    // After a rate change the hourly invoice names the term, not the contract.
+    { recordId: '960041300', accountingSubtype: 'Hourly', type: 'APInvoice', description: '(42838462) Northwind Supply - 1:30 hrs @ $80.00/hr - 10/19/2026 - 10/25/2026', transactionAmount: { currency: 'USD', rawValue: '120.00' }, transactionCreationDate: '2026-10-25T00:00:00+0000', assignmentCompanyName: 'Northwind Supply' },
     { recordId: '952591265', accountingSubtype: 'Membership Fee', type: 'ARInvoice', description: 'Subscription Renewal Charges', transactionAmount: { currency: 'USD', rawValue: '19.99' }, transactionCreationDate: '2026-09-20T00:00:00+0000' },
   ],
 }
@@ -46,7 +48,7 @@ describe('Upwork transactions', () => {
     expect(fee.contractId).toBeUndefined()
     expect(parseTransaction(file.transactions![2])).toMatchObject({ type: 'withdrawal', amount: 2688.51 })
     expect(parseTransaction(file.transactions![3])).toMatchObject({ type: 'withdrawalFee', amount: -0.99 })
-    expect(parseTransaction(file.transactions![4])).toMatchObject({ type: 'membership', amount: 19.99 })
+    expect(parseTransaction(file.transactions![5])).toMatchObject({ type: 'membership', amount: 19.99 })
     // Fixed-price work appears as "Fixed Price" invoices or "Milestone" adjustments; reversed rows are flagged.
     expect(classifyTransaction('Milestone')).toBe('fixed')
     const reversed = parseTransaction({ recordId: '293952361', accountingSubtype: 'Bonus', type: 'APAdjustment', description: '(23962678) Some Client - Bonus', transactionAmount: { currency: 'USD', rawValue: '425.00' }, transactionCreationDate: '2020-04-01T00:00:00+0000', paymentStatus: 'REVERSED' })
@@ -83,7 +85,7 @@ describe('Upwork import', () => {
     expect(first.clients).toEqual({ created: 4, matched: 0 })
     expect(first.projects).toEqual({ created: 4, matched: 0 })
     expect(first.entries).toEqual({ added: 5, updated: 0, unchanged: 0, removed: 0 })
-    expect(first.transactions).toEqual({ added: 5, updated: 0, unchanged: 0 })
+    expect(first.transactions).toEqual({ added: 6, updated: 0, unchanged: 0 })
 
     const clients = await db.clients.toArray()
     expect(clients.map((c) => c.name).sort()).toEqual(['Northwind Supply', 'Upwork client 520000', 'Upwork contract 19450271', 'Upwork contract 33492237'])
@@ -128,16 +130,17 @@ describe('Upwork import', () => {
     expect(entries[0]).toMatchObject({ durationMin: 120, amount: 0, hourlyRate: 0, billable: false, feeAmount: 0, netAmount: 0 })
 
     const txs = await db.upworkTransactions.toArray()
-    expect(txs).toHaveLength(5)
+    expect(txs).toHaveLength(6)
     // The fee row only knows the term id; the time rows map the term to the contract.
     expect(txs.find((t) => t.type === 'fee')).toMatchObject({ termId: '42838462', contractId: '36599829' })
+    expect(txs.find((t) => t.txId === '960041300')).toMatchObject({ type: 'hourly', termId: '42838462', contractId: '36599829' })
 
     // Same file again: nothing changes.
     const second = await importUpwork(file, db)
     expect(second.clients).toEqual({ created: 0, matched: 0 })
     expect(second.projects).toEqual({ created: 0, matched: 4 })
     expect(second.entries).toEqual({ added: 0, updated: 0, unchanged: 5, removed: 0 })
-    expect(second.transactions).toEqual({ added: 0, updated: 0, unchanged: 5 })
+    expect(second.transactions).toEqual({ added: 0, updated: 0, unchanged: 6 })
 
     // A corrected row (more hours) updates the entry in place and keeps its identity; other days are untouched.
     const corrected: UpworkImportFile = { ...file, time: [{ ...file.time![0], totalHoursWorked: 7, totalCharges: 560 }] }
@@ -170,7 +173,7 @@ describe('Upwork import', () => {
     const merged = mergeUpworkFiles([file, { app: 'time-tracking-upwork', version: 1, time: [{ ...file.time![0], totalHoursWorked: 8, totalCharges: 640 }], transactions: [file.transactions![0]] }])
     expect(merged.time).toHaveLength(5)
     expect(merged.time!.find((t) => t.dateWorkedOn === '2026-10-12')!.totalHoursWorked).toBe(8)
-    expect(merged.transactions).toHaveLength(5)
+    expect(merged.transactions).toHaveLength(6)
     expect(merged.contracts).toHaveLength(2)
   })
 })
