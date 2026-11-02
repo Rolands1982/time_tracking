@@ -4,8 +4,8 @@ import { Link } from 'react-router-dom'
 import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
-import { groupBy, setBilled, totals } from '../db/repo'
-import { db } from '../db/schema'
+import { groupBy, isBillable, setBilled, totals } from '../db/repo'
+import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
 import { periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
@@ -28,7 +28,17 @@ export default function ReportsPage() {
     return rows
   }, [range.from, range.to], [] as TimeEntry[])
 
-  const filtered = useMemo(() => entries.filter((e) => (clientId == null ? true : e.clientId === clientId)), [entries, clientId])
+  // The click takes effect at once; the setting persists in the background and wins after a reload.
+  const [includeOverride, setIncludeOverride] = useState<boolean | null>(null)
+  const includeNonBillable = includeOverride ?? settings.reportsIncludeNonBillable ?? false
+  const setIncludeNonBillable = (on: boolean) => {
+    setIncludeOverride(on)
+    void updateSettings({ reportsIncludeNonBillable: on })
+  }
+  const filtered = useMemo(
+    () => entries.filter((e) => (clientId == null ? true : e.clientId === clientId)).filter((e) => includeNonBillable || isBillable(e)),
+    [entries, clientId, includeNonBillable],
+  )
   const t = useMemo(() => totals(filtered), [filtered])
   const currency = (clientId != null && clientById.get(clientId)?.currency) || settings.defaultCurrency
 
@@ -77,10 +87,17 @@ export default function ReportsPage() {
             </option>
           ))}
         </select>
+        <label className="check">
+          <input type="checkbox" checked={includeNonBillable} onChange={(e) => setIncludeNonBillable(e.target.checked)} data-testid="include-non-billable" />
+          Include non-billable hours
+        </label>
         <div className="stat-grid">
           <div className="stat">
-            <div className="label">Billed hours</div>
-            <div className="value">{(t.billedMin / 60).toFixed(2)}</div>
+            <div className="label">{includeNonBillable ? 'Hours' : 'Billed hours'}</div>
+            <div className="value" data-testid="report-hours">
+              {(t.billedMin / 60).toFixed(2)}
+            </div>
+            {t.nonBillableMin > 0 && <div className="label">{(t.nonBillableMin / 60).toFixed(2)} non-billable</div>}
             {t.billedMin !== t.durationMin && <div className="label">actual {(t.durationMin / 60).toFixed(2)}</div>}
           </div>
           <div className="stat">
@@ -156,7 +173,7 @@ export default function ReportsPage() {
       />
       <p className="muted small">
         Hours and amounts are on the billed basis (start snapped to 10 minutes, 15-minute steps); actual minutes are shown
-        where they differ. Totals per client use that client's currency; the overall figures use {currency}.
+        where they differ. Non-billable work {includeNonBillable ? 'is counted in the hours but never in the amounts' : 'is left out'}. Totals per client use that client's currency; the overall figures use {currency}.
       </p>
     </>
   )

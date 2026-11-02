@@ -271,10 +271,14 @@ export function compareEntries(a: TimeEntry, b: TimeEntry): number {
 
 export interface Totals {
   count: number
-  /** Real minutes. */
+  /** Real minutes, all entries. */
   durationMin: number
-  /** Minutes on the invoice (normalised where available). */
+  /** Minutes on the billing basis (normalised where available), all entries including non-billable ones. */
   billedMin: number
+  /** Billing-basis minutes and count of non-billable entries (work that is never invoiced). */
+  nonBillableMin: number
+  nonBillableCount: number
+  /** Money: non-billable entries never count, whatever amount they carry. */
   amount: number
   billedAmount: number
   unbilledAmount: number
@@ -282,14 +286,19 @@ export interface Totals {
 }
 
 export function totals(entries: TimeEntry[]): Totals {
-  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0 }
+  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0 }
   for (const e of entries) {
     t.count++
     t.durationMin += e.durationMin
     t.billedMin += billedMinutes(e)
+    if (!isBillable(e)) {
+      t.nonBillableMin += billedMinutes(e)
+      t.nonBillableCount++
+      continue
+    }
     t.amount += e.amount
     if (e.isBilled) t.billedAmount += e.amount
-    else if (isBillable(e)) {
+    else {
       t.unbilledAmount += e.amount
       t.unbilledMin += billedMinutes(e)
     }
