@@ -71,6 +71,19 @@ describe('entries', () => {
     expect(rateFor(undefined, '2026-06-01')).toBe(0)
   })
 
+  it('settles direct work trivially: client currency, no fee, EUR at rate 1', async () => {
+    const eur = await findOrCreateClient('Acme', { defaultRate: 60 }, db)
+    const usd = await findOrCreateClient('Overseas', { defaultRate: 100, currency: 'USD' }, db)
+    const a = await addEntry({ date: '2026-10-01', startTime: '09:00', endTime: '10:00', clientId: eur.id!, hourlyRate: 60, comments: '', isBilled: false }, db)
+    const b = await addEntry({ date: '2026-10-01', startTime: '09:00', endTime: '10:00', clientId: usd.id!, hourlyRate: 100, comments: '', isBilled: false }, db)
+    expect((await db.entries.get(a))!).toMatchObject({ currency: 'EUR', feeAmount: 0, netAmount: 60, fxRate: 1, netAmountEur: 60, settlement: 'actual' })
+    const usdEntry = (await db.entries.get(b))!
+    expect(usdEntry).toMatchObject({ currency: 'USD', feeAmount: 0, netAmount: 100, settlement: 'estimated' })
+    expect(usdEntry.fxRate).toBeUndefined()
+    await updateEntry(a, { ...(await db.entries.get(a))!, endTime: '11:00' }, db)
+    expect((await db.entries.get(a))!).toMatchObject({ amount: 120, netAmount: 120, netAmountEur: 120, currency: 'EUR' })
+  })
+
   it('counts non-billable work in the hours but never in the amounts', async () => {
     const c = await findOrCreateClient('Acme', { defaultRate: 60 }, db)
     await addEntry({ date: '2026-09-01', startTime: '09:00', endTime: '10:00', clientId: c.id!, hourlyRate: 60, comments: '', isBilled: false }, db)

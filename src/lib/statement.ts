@@ -38,6 +38,8 @@ export interface StatementRow {
   date: string
   startTime: string
   endTime: string
+  /** Platform rows report a duration only; the times are a convention and are not shown. */
+  timeless?: boolean
   /** Minutes on the billing basis (billedMin when present, else the real minutes). */
   minutes: number
   actualMin: number
@@ -110,6 +112,7 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
       date: e.date,
       startTime: e.startTime,
       endTime: e.endTime,
+      timeless: e.timeless || undefined,
       minutes: billedMinutes(e),
       actualMin: e.durationMin,
       project: e.projectId == null ? '' : (projectName.get(e.projectId) ?? ''),
@@ -169,6 +172,11 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
 /** Description cell: the category is folded into it unless it has a column of its own. */
 export function describe(r: StatementRow, columns: readonly StatementColumn[]): string {
   return columns.includes('category') ? r.comments : [r.category, r.comments].filter(Boolean).join(': ')
+}
+
+/** Time cell: the clock span, or empty for rows that only report a duration. */
+export function timeText(r: Pick<StatementRow, 'startTime' | 'endTime' | 'timeless'>): string {
+  return r.timeless ? '' : `${r.startTime}–${r.endTime}`
 }
 
 /** Invoice cell: reference, else invoice date, else status. */

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import CloudSyncCard from '../components/CloudSyncCard'
+import UpworkImportCard from '../components/UpworkImportCard'
 import { useToast } from '../components/toastContext'
 import { useSettings } from '../db/hooks'
 import { db, updateSettings } from '../db/schema'
@@ -196,6 +197,8 @@ export default function DataPage() {
           </p>
         )}
       </div>
+
+      <UpworkImportCard />
 
       <h2>Master file</h2>
       <div className="card stack">

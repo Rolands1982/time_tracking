@@ -1,6 +1,6 @@
 /** Customer summary as a one-sheet Excel workbook, with the columns the statement selects. */
 import ExcelJS from 'exceljs'
-import { describe, FILTER_LABELS, hours, invoiceText, type Statement, type StatementColumn, type StatementRow } from '../statement'
+import { describe, FILTER_LABELS, hours, invoiceText, timeText, type Statement, type StatementColumn, type StatementRow } from '../statement'
 import { formatDate } from '../period'
 
 const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCE6F1' } }
@@ -23,7 +23,7 @@ function columnSpecs(st: Statement): Record<StatementColumn, ColumnSpec> {
   const money = `#,##0.00 "${st.currency}"`
   return {
     date: { header: 'Date', width: 12, value: (r) => excelDate(r.date), numFmt: 'dd.mm.yyyy' },
-    time: { header: 'Time', width: 13, value: (r) => `${r.startTime}–${r.endTime}` },
+    time: { header: 'Time', width: 13, value: (r) => timeText(r) },
     project: { header: 'Project', width: 22, value: (r) => r.project },
     category: { header: 'Category', width: 14, value: (r) => r.category ?? '' },
     description: { header: 'Description', width: 60, value: (r) => describe(r, st.columns), wrap: true },

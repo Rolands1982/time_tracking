@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -103,6 +103,28 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByRole('button', { name: 'Analyse file' }).click()
   await page.getByTestId('confirm-import').click()
   await expect(page.getByText(/Imported 0 entries \(16 duplicates skipped\)/)).toBeVisible()
+
+  // Upwork pull (synthetic) imported through the Data screen: timeless daily entries.
+  const upworkPath = join(tmpdir(), 'upwork-pull.json')
+  await writeFile(
+    upworkPath,
+    JSON.stringify({
+      app: 'time-tracking-upwork',
+      version: 1,
+      account: { name: 'Test freelancer' },
+      contracts: [{ id: '36599829', title: 'RPA Developer', status: 'ACTIVE', clientOrganization: { id: '425281712378155008', name: 'Northwind Supply' } }],
+      time: [{ contract: { id: '36599829', title: 'RPA Developer' }, dateWorkedOn: `${ym}-06`, weekWorkedOn: `${ym}-06`, totalHoursWorked: 6.5, totalCharges: 520, memo: 'RDEV-46', termId: '42838462' }],
+      transactions: [{ recordId: '960041226', accountingSubtype: 'Hourly', type: 'APInvoice', description: `(36599829) Northwind Supply - 6:30 hrs @ $80.00/hr - 10/06/2026 - 10/12/2026`, transactionAmount: { currency: 'USD', rawValue: '520.00' }, transactionCreationDate: `${ym}-12T00:00:00+0000`, assignmentCompanyName: 'Northwind Supply' }],
+    }),
+  )
+  await page.getByLabel('Upwork import file').setInputFiles(upworkPath)
+  await expect(page.getByText(/1 contracts, 1 time rows, 1 transactions/)).toBeVisible()
+  await page.getByTestId('upwork-import').click()
+  await expect(page.getByText(/Upwork: 1 new rows/)).toBeVisible()
+  await expect(page.getByText('Upwork days')).toBeVisible()
+  await page.getByRole('link', { name: 'Entries' }).click()
+  await expect(page.getByText('Northwind Supply · RPA Developer')).toBeVisible()
+  await expect(page.getByText('6h 30m logged · RDEV-46')).toBeVisible()
 
   // Reports: all-time view shows both clients and an open balance for Polystylex.
   await page.getByRole('link', { name: 'Reports' }).click()

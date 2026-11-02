@@ -109,7 +109,7 @@ export default function EntriesPage() {
                       {e.projectId != null ? ` · ${projectName(e.projectId)}` : ''}
                     </div>
                     <div className="sub">
-                      {e.startTime}–{e.endTime}
+                      {e.timeless ? `${formatDuration(e.durationMin)} logged` : `${e.startTime}–${e.endTime}`}
                       {e.comments ? ` · ${e.comments}` : ''}
                     </div>
                   </div>

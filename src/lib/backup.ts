@@ -1,5 +1,5 @@
 import { db, SYNC_TABLES, type TimeTrackingDB } from '../db/schema'
-import type { Client, Project, Settings, SyncTable, TimeEntry, Tombstone } from '../db/types'
+import type { Client, Project, Settings, SyncTable, TimeEntry, Tombstone, UpworkTransaction } from '../db/types'
 
 export interface Backup {
   app: 'time-tracking'
@@ -8,17 +8,19 @@ export interface Backup {
   clients: Client[]
   projects: Project[]
   entries: TimeEntry[]
+  upworkTransactions?: UpworkTransaction[]
   settings?: Settings
 }
 
 export async function createBackup(database: TimeTrackingDB = db): Promise<Backup> {
-  const [clients, projects, entries, settings] = await Promise.all([
+  const [clients, projects, entries, upworkTransactions, settings] = await Promise.all([
     database.clients.toArray(),
     database.projects.toArray(),
     database.entries.toArray(),
+    database.upworkTransactions.toArray(),
     database.settings.get('app'),
   ])
-  return { app: 'time-tracking', version: 1, exportedAt: new Date().toISOString(), clients, projects, entries, settings }
+  return { app: 'time-tracking', version: 1, exportedAt: new Date().toISOString(), clients, projects, entries, upworkTransactions, settings }
 }
 
 export function isBackup(x: unknown): x is Backup {
@@ -52,11 +54,11 @@ async function tombstoneEverything(database: TimeTrackingDB): Promise<void> {
  */
 export async function restoreBackup(backup: Backup, database: TimeTrackingDB = db): Promise<void> {
   if (!isBackup(backup)) throw new Error('Not a time-tracking backup file')
-  await database.transaction('rw', [database.clients, database.projects, database.entries, database.settings, database.tombstones], async () => {
+  await database.transaction('rw', [database.clients, database.projects, database.entries, database.upworkTransactions, database.settings, database.tombstones], async () => {
     await tombstoneEverything(database)
-    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear()])
+    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.upworkTransactions.clear(), database.settings.clear()])
     // Rows of this very backup may already live in the cloud under their uid: never tombstone those.
-    const restoredUids = new Set([...backup.clients, ...(backup.projects ?? []), ...backup.entries].map((r) => r.uid).filter(Boolean))
+    const restoredUids = new Set([...backup.clients, ...(backup.projects ?? []), ...backup.entries, ...(backup.upworkTransactions ?? [])].map((r) => r.uid).filter(Boolean))
     if (restoredUids.size) {
       const stale = (await database.tombstones.toArray()).filter((t) => restoredUids.has(t.uid))
       if (stale.length) await database.tombstones.bulkDelete(stale.map((t) => t.id!))
@@ -65,6 +67,7 @@ export async function restoreBackup(backup: Backup, database: TimeTrackingDB = d
     await database.clients.bulkAdd(fresh(backup.clients))
     await database.projects.bulkAdd(fresh(backup.projects ?? []))
     await database.entries.bulkAdd(fresh(backup.entries))
+    await database.upworkTransactions.bulkAdd(fresh(backup.upworkTransactions ?? []))
     if (backup.settings) {
       await database.settings.put({ ...backup.settings, id: 'app', runningTimer: undefined, sync: undefined })
     }
@@ -73,8 +76,8 @@ export async function restoreBackup(backup: Backup, database: TimeTrackingDB = d
 
 /** Wipe all data; with cloud sync on, the next sync removes it from the cloud as well. */
 export async function clearAllData(database: TimeTrackingDB = db): Promise<void> {
-  await database.transaction('rw', [database.clients, database.projects, database.entries, database.settings, database.tombstones], async () => {
+  await database.transaction('rw', [database.clients, database.projects, database.entries, database.upworkTransactions, database.settings, database.tombstones], async () => {
     await tombstoneEverything(database)
-    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.settings.clear()])
+    await Promise.all([database.clients.clear(), database.projects.clear(), database.entries.clear(), database.upworkTransactions.clear(), database.settings.clear()])
   })
 }

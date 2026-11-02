@@ -34,13 +34,15 @@ analysis, and the monthly hours report for the tax authority.
 ## Architecture
 
 ```
-src/db        Dexie (IndexedDB) schema v2, types, repository functions (entries, timer, billing, reporting)
+src/db        Dexie (IndexedDB) schema v3, types, repository functions (entries, timer, billing, reporting)
 src/sync      cloud sync: engine (pull then push), remote interface + Supabase implementation, React hook
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
-              summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup
+              summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup,
+              upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger)
 src/pages     Timer, Entries, Entry form, Reports, Summary (customer summary → Excel/PDF), Clients, Data
 src/components Bottom navigation, client/project picker, toast, cloud sync card
-scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app)
+scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app);
+              upwork-merge.ts: merge several Upwork pull files into one import file
 supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view;
               functions/send-mail: Edge Function that e-mails documents through the owner's SMTP mailbox
 tests/unit    vitest (fake-indexeddb); tests/e2e: Playwright smoke test on a phone viewport
@@ -53,6 +55,14 @@ Conventions that matter:
 - `durationMin` and `amount` are derived and cached; always create/update entries through `src/db/repo.ts`
   (`addEntry`, `updateEntry`, `setBilled`, `deleteEntry`) so derived fields, sync flags and tombstones stay right.
 - `billable === false` marks work never to be invoiced; `undefined` means billable. Use `isBillable()`.
+- **Money columns** on every entry: `amount` is the gross in `currency`; `feeAmount`, `netAmount`, `fxRate`,
+  `netAmountEur`, `settlement` ('actual' | 'estimated') and `payoutId` let reports sum in EUR. Direct work gets
+  `settleDirect()` (fee 0, net = gross, EUR at rate 1); platform entries (`source: 'upwork'`) carry what the import
+  or the allocation set. `timeless: true` entries only report a duration: show it instead of the times.
+- Upwork data: `upworkTransactions` is the raw ledger (never edited by derivations; `eurAmount` on withdrawals is
+  the one user-entered field); entries are one per contract, day and memo, keyed by `externalId` = `upwork:<contractId>:<date>:<memoId>`
+  (memo id = tail of the MCP row cursor); hours with zero charges import as non-billable; projects carry
+  `upwork.contractId`, clients `upworkClientId`. Fee rows reference the *term* id, time rows map term → contract.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.

@@ -108,7 +108,7 @@ Gross in EUR is not stored (`amount × fxRate`, display only). Direct clients ge
 gross, rate 1, settlement actual. Reports gain a currency switch: gross in the client's currency, net in the
 client's currency, net in EUR across all clients. The customer summary stays gross in the client's currency.
 
-Upwork-specific: `source: 'upwork'` (new value), `externalId` (contract id + date, or milestone id) for
+Upwork-specific: `source: 'upwork'` (new value), `externalId` (contract id + date + memo id, or milestone id) for
 idempotency. Upwork rows have no clock times: such entries get `timeless: true`, `startTime`/`endTime` are left
 as a convention (`00:00` plus the duration) and every screen shows the duration only. `hourlyRate` is the row's
 `totalCharges / totalHoursWorked`; `billedMin` equals the real minutes (Upwork has already billed them).
