@@ -110,7 +110,7 @@ export interface TimeEntry extends Synced {
   settlement?: Settlement
   /** The platform payout (UpworkTransaction.txId) that paid this entry. */
   payoutId?: string
-  /** Platform row identity for idempotent imports, e.g. "upwork:<contractId>:<date>". */
+  /** Platform row identity for idempotent imports, e.g. "upwork:<contractId>:<date>:<memoId>". */
   externalId?: string
   /** True when the platform reports a duration only; startTime/endTime are then a convention. */
   timeless?: boolean
@@ -151,6 +151,8 @@ export interface UpworkTransaction extends Synced {
   /** Withdrawals: what the bank received, typed in or imported from the bank statement. */
   eurAmount?: number
   eurDate?: string
+  /** Upwork marked the row REVERSED (it and its reversal cancel out); allocation skips these. */
+  reversed?: boolean
 }
 
 export type SyncTable = 'clients' | 'projects' | 'entries' | 'upworkTransactions'

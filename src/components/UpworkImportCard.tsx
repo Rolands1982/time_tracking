@@ -52,7 +52,7 @@ export default function UpworkImportCard() {
     try {
       const r = await importUpwork(file)
       setReport(r)
-      toast(`Upwork: ${r.entries.added} new days, ${r.entries.updated} updated, ${r.transactions.added} new transactions`)
+      toast(`Upwork: ${r.entries.added} new rows, ${r.entries.updated} updated, ${r.entries.removed} removed, ${r.transactions.added} new transactions`)
       setFile(null)
       setInputKey((k) => k + 1)
     } catch (err) {
@@ -95,7 +95,7 @@ export default function UpworkImportCard() {
         {file && (
           <>
             <p className="small">
-              <strong>{fileName}</strong>: {file.contracts?.length ?? 0} contracts, {file.time?.length ?? 0} days of time, {file.transactions?.length ?? 0} transactions
+              <strong>{fileName}</strong>: {file.contracts?.length ?? 0} contracts, {file.time?.length ?? 0} time rows, {file.transactions?.length ?? 0} transactions
               {file.account?.name ? ` · account ${file.account.name}` : ''}
             </p>
             <button className="btn primary" onClick={run} disabled={busy} data-testid="upwork-import">
@@ -105,8 +105,8 @@ export default function UpworkImportCard() {
         )}
         {report && (
           <p className="small muted">
-            Clients {report.clients.created} new / {report.clients.matched} matched · projects {report.projects.created} new · days {report.entries.added} new,{' '}
-            {report.entries.updated} updated, {report.entries.unchanged} unchanged · transactions {report.transactions.added} new, {report.transactions.updated} updated.
+            Clients {report.clients.created} new / {report.clients.matched} matched · projects {report.projects.created} new · time rows {report.entries.added} new,{' '}
+            {report.entries.updated} updated, {report.entries.unchanged} unchanged, {report.entries.removed} removed · transactions {report.transactions.added} new, {report.transactions.updated} updated.
           </p>
         )}
       </div>

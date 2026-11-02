@@ -60,7 +60,8 @@ Conventions that matter:
   `settleDirect()` (fee 0, net = gross, EUR at rate 1); platform entries (`source: 'upwork'`) carry what the import
   or the allocation set. `timeless: true` entries only report a duration: show it instead of the times.
 - Upwork data: `upworkTransactions` is the raw ledger (never edited by derivations; `eurAmount` on withdrawals is
-  the one user-entered field); entries are keyed by `externalId` = `upwork:<contractId>:<date>`; projects carry
+  the one user-entered field); entries are one per contract, day and memo, keyed by `externalId` = `upwork:<contractId>:<date>:<memoId>`
+  (memo id = tail of the MCP row cursor); hours with zero charges import as non-billable; projects carry
   `upwork.contractId`, clients `upworkClientId`. Fee rows reference the *term* id, time rows map term → contract.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`

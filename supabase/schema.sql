@@ -156,10 +156,12 @@ create table if not exists public.upwork_transactions (
   fee_percent   numeric(6, 3),
   eur_amount    numeric(12, 2),
   eur_date      date,
+  reversed      boolean,
   updated_at    timestamptz not null default now(),
   synced_at     timestamptz not null default now(),
   deleted_at    timestamptz
 );
+alter table public.upwork_transactions add column if not exists reversed boolean;
 create index if not exists upwork_tx_user_synced on public.upwork_transactions (user_id, synced_at);
 create index if not exists upwork_tx_user_date on public.upwork_transactions (user_id, date);
 drop trigger if exists upwork_tx_synced_at on public.upwork_transactions;

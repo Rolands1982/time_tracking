@@ -1,7 +1,8 @@
 /**
  * Upwork import: turns what the Upwork MCP server returns (contracts, daily time rows, the transaction
  * ledger) into clients, projects, entries and raw transactions. Idempotent: contracts are matched by id,
- * time rows by contract + day, transactions by Upwork record id. See docs/plans/upwork-integration.md.
+ * time rows by contract + day + memo (Upwork reports one row per memo and day), transactions by Upwork
+ * record id. See docs/plans/upwork-integration.md.
  */
 import { db, getSettings, type TimeTrackingDB } from '../../db/schema'
 import { buildEntry } from '../../db/repo'
@@ -21,6 +22,8 @@ export interface UpworkContractRow {
 }
 
 export interface UpworkTimeRow {
+  /** Row cursor as the MCP server returns it: YYYYMMDD followed by a stable memo id. */
+  cursor?: string
   contract: { id: string; title?: string }
   dateWorkedOn: string
   weekWorkedOn?: string
@@ -38,6 +41,7 @@ export interface UpworkTxRow {
   transactionAmount: { currency?: string; rawValue?: string | number; displayValue?: string }
   transactionCreationDate: string
   assignmentCompanyName?: string
+  paymentStatus?: string
 }
 
 export interface UpworkImportFile {
@@ -54,6 +58,15 @@ export function isUpworkImportFile(x: unknown): x is UpworkImportFile {
   return typeof x === 'object' && x !== null && (x as UpworkImportFile).app === 'time-tracking-upwork'
 }
 
+/**
+ * Identity of a time row: contract, day and memo. The memo id is the tail of the row cursor (stable across
+ * pulls for the same memo text); rows without a cursor fall back to the memo text itself.
+ */
+export function timeRowKey(t: UpworkTimeRow): string {
+  const memoId = t.cursor && t.cursor.length > 8 ? t.cursor.slice(8) : t.memo?.trim() || '-'
+  return `${t.contract.id}:${t.dateWorkedOn}:${memoId}`
+}
+
 /** Merge several pulls (e.g. one per year) into one file; later rows win on equal keys. */
 export function mergeUpworkFiles(files: UpworkImportFile[]): UpworkImportFile {
   const contracts = new Map<string, UpworkContractRow>()
@@ -61,7 +74,7 @@ export function mergeUpworkFiles(files: UpworkImportFile[]): UpworkImportFile {
   const transactions = new Map<string, UpworkTxRow>()
   for (const f of files) {
     for (const c of f.contracts ?? []) contracts.set(c.id, c)
-    for (const t of f.time ?? []) time.set(`${t.contract.id}:${t.dateWorkedOn}`, t)
+    for (const t of f.time ?? []) time.set(timeRowKey(t), t)
     for (const t of f.transactions ?? []) transactions.set(t.recordId, t)
   }
   return { app: 'time-tracking-upwork', version: 1, exportedAt: new Date().toISOString(), account: files[0]?.account, contracts: [...contracts.values()], time: [...time.values()], transactions: [...transactions.values()] }
@@ -73,6 +86,7 @@ const SUBTYPE_TO_TYPE: Record<string, UpworkTxType> = {
   hourly: 'hourly',
   'fixed price': 'fixed',
   'fixed-price': 'fixed',
+  milestone: 'fixed',
   bonus: 'bonus',
   'service fee': 'fee',
   'vat for service fee': 'vat',
@@ -81,6 +95,9 @@ const SUBTYPE_TO_TYPE: Record<string, UpworkTxType> = {
   'withdrawal fee': 'withdrawalFee',
   refund: 'refund',
   'membership fee': 'membership',
+  // One-off client payments outside the hourly/fixed invoices: reimbursed expenses, "Miscellaneous Payment".
+  expense: 'bonus',
+  miscellaneous: 'bonus',
 }
 
 export function classifyTransaction(subtype: string | undefined): UpworkTxType {
@@ -108,6 +125,7 @@ export function parseTransaction(row: UpworkTxRow): UpworkTransaction {
     amount: Math.round(amount * 100) / 100,
     currency: row.transactionAmount.currency ?? 'USD',
     clientName: row.assignmentCompanyName || undefined,
+    reversed: row.paymentStatus === 'REVERSED' ? true : undefined,
   }
   // "(36599829) Client - 37:10 hrs @ $80.00/hr - 10/12/2026 - 10/18/2026"
   const hourly = /^\((\d+)\)\s*(.*?)\s*-\s*(\d+):(\d{2}) hrs @ \$([\d.,]+)\/hr\s*-\s*(\d{2})\/(\d{2})\/(\d{4})\s*-\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(description)
@@ -150,7 +168,8 @@ export function feePercentFor(date: string, schedule?: { from: string; percent: 
 export interface UpworkImportReport {
   clients: { created: number; matched: number }
   projects: { created: number; matched: number }
-  entries: { added: number; updated: number; unchanged: number }
+  /** removed: entries for a contract and day the file covers that Upwork no longer reports (memo edited, time deleted). */
+  entries: { added: number; updated: number; unchanged: number; removed: number }
   transactions: { added: number; updated: number; unchanged: number }
   warnings: string[]
 }
@@ -168,7 +187,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
   const report: UpworkImportReport = {
     clients: { created: 0, matched: 0 },
     projects: { created: 0, matched: 0 },
-    entries: { added: 0, updated: 0, unchanged: 0 },
+    entries: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     transactions: { added: 0, updated: 0, unchanged: 0 },
     warnings: [],
   }
@@ -189,7 +208,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
   for (const t of parsedTx) if (t.type === 'hourly' && t.contractId) fixedContracts.delete(t.contractId)
   for (const t of parsedTx) if (!t.contractId && t.termId && termToContract.has(t.termId)) t.contractId = termToContract.get(t.termId)
 
-  await database.transaction('rw', [database.clients, database.projects, database.entries, database.upworkTransactions, database.settings], async () => {
+  await database.transaction('rw', [database.clients, database.projects, database.entries, database.upworkTransactions, database.settings, database.tombstones], async () => {
     const clients = await database.clients.toArray()
     const projects = await database.projects.toArray()
     const clientByUpworkId = new Map(clients.filter((c) => c.upworkClientId).map((c) => [c.upworkClientId!, c]))
@@ -233,17 +252,23 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
       projectForContract.set(id, project)
     }
 
-    // Daily time rows → entries.
+    // Time rows → entries, one per contract, day and memo.
     const existingByExternal = new Map<string, TimeEntry>()
     for (const e of await database.entries.where('source').equals('upwork').toArray()) if (e.externalId) existingByExternal.set(e.externalId, e)
+    const seen = new Set<string>()
+    const daysInFile = new Set<string>()
     for (const t of file.time ?? []) {
       const contractId = String(t.contract.id)
       const project = projectForContract.get(contractId)!
-      const externalId = `upwork:${contractId}:${t.dateWorkedOn}`
+      const externalId = `upwork:${timeRowKey(t)}`
+      seen.add(externalId)
+      daysInFile.add(`${contractId}:${t.dateWorkedOn}`)
       const durationMin = Math.round(t.totalHoursWorked * 60)
       if (durationMin <= 0) continue
       const amount = round2(t.totalCharges)
-      const hourlyRate = round2(t.totalCharges / t.totalHoursWorked)
+      // Unpaid hours (charges 0) are kept for the record but never count as money.
+      const billable = amount > 0
+      const hourlyRate = billable ? round2(t.totalCharges / t.totalHoursWorked) : 0
       const week = t.weekWorkedOn ?? t.dateWorkedOn
       const existing = existingByExternal.get(externalId)
       const feePercent = feePercentFor(t.dateWorkedOn, schedule)
@@ -260,6 +285,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
         isBilled: true,
         invoiceDate: addDays(week, 6),
         invoiceRef: `Upwork week ${week}`,
+        billable: billable ? undefined : false,
         source: 'upwork' as const,
         externalId,
         timeless: true,
@@ -267,7 +293,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
         normalize: false,
       }
       if (existing) {
-        const same = existing.durationMin === durationMin && existing.amount === amount && existing.comments === input.comments && existing.projectId === project.id
+        const same = existing.durationMin === durationMin && existing.amount === amount && existing.comments === input.comments && existing.projectId === project.id && (existing.billable === false) === !billable
         if (same) {
           report.entries.unchanged++
           continue
@@ -280,6 +306,13 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
         report.entries.added++
       }
     }
+    // A day the file covers is complete: rows Upwork no longer reports for it are gone (memo edited, time removed).
+    for (const e of existingByExternal.values()) {
+      const key = e.externalId!.split(':')
+      if (seen.has(e.externalId!) || key.length < 4 || !daysInFile.has(`${key[1]}:${key[2]}`)) continue
+      await database.deleteSynced('entries', e.id!)
+      report.entries.removed++
+    }
 
     // Transactions, raw.
     const existingTx = new Map((await database.upworkTransactions.toArray()).map((t) => [t.txId, t]))
@@ -288,7 +321,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
       if (!existing) {
         await database.upworkTransactions.add(t)
         report.transactions.added++
-      } else if (existing.amount !== t.amount || existing.description !== t.description || existing.type !== t.type || (!existing.contractId && t.contractId)) {
+      } else if (existing.amount !== t.amount || existing.description !== t.description || existing.type !== t.type || (!existing.contractId && t.contractId) || Boolean(existing.reversed) !== Boolean(t.reversed)) {
         await database.upworkTransactions.put({ ...existing, ...t, eurAmount: existing.eurAmount, eurDate: existing.eurDate, id: existing.id })
         report.transactions.updated++
       } else report.transactions.unchanged++

@@ -204,6 +204,7 @@ function upworkTxToRemote(t: UpworkTransaction) {
     fee_percent: t.feePercent ?? null,
     eur_amount: t.eurAmount ?? null,
     eur_date: t.eurDate ?? null,
+    reversed: t.reversed ?? null,
     updated_at: t.updatedAt ?? new Date().toISOString(),
     deleted_at: null,
   }
@@ -230,6 +231,7 @@ function upworkTxFromRemote(r: RemoteRow): Omit<UpworkTransaction, 'id'> {
     feePercent: optNum(r.fee_percent),
     eurAmount: optNum(r.eur_amount),
     eurDate: str(r.eur_date),
+    reversed: r.reversed ? true : undefined,
     updatedAt: r.updated_at,
     dirty: 0,
   }

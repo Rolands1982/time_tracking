@@ -33,8 +33,8 @@ and it behaves like a native app, including offline.
   `Billed dd/mm/yyyy` and `Aprīlis 2024` style invoice labels, and `Nepiestādāmas` (non-billable) rows.
   Re-importing a file never duplicates rows.
 - **Upwork**: Data → Upwork loads a pull from Upwork's MCP server (contracts, daily time, the transaction
-  ledger) as clients, projects, timeless daily entries in USD and raw transactions; days are matched by contract
-  and date so a pull can be loaded again. Fees and exchange rates start as estimates (see
+  ledger) as clients, projects, timeless entries in USD (one per contract, day and memo) and raw transactions;
+  rows are matched by contract, date and memo so a pull can be loaded again. Fees and exchange rates start as estimates (see
   `docs/plans/upwork-integration.md` for the allocation that follows).
 - **Master file export**: one `.xlsx` with every entry and summary sheets (by month, client, client & project,
   invoice, clients).
