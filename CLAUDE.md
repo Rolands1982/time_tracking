@@ -8,8 +8,8 @@ A mobile-first, offline-capable time tracking PWA for a freelancer: entries per 
 billing status and invoice data; a timer; reports; Excel import of historical sheets; master-file export; optional
 cloud sync to a Supabase (PostgreSQL) project. Published to GitHub Pages from `main`.
 
-Planned next: customer summaries, invoice generation (PDF / e-mail / ERP export), analysis, and the monthly hours
-report for the tax authority.
+Planned next: invoice generation (PDF / e-mail / ERP export), Upwork integration (see `docs/plans/upwork-integration.md`),
+analysis, and the monthly hours report for the tax authority.
 
 ## Workflow rules
 
