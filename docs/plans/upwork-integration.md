@@ -35,33 +35,50 @@ app treats the milestone like a block of hours.
    header-driven import pattern the app already uses for Excel. This is the path for the **historical backfill**
    and the safe first version.
 
-Recommendation: build the data model and the fee/FX logic once, feed it first from CSV (stage 1–3), then add
-automation (stage 4) on top of the same import path. The MCP connector can be used from stage 1 on for
-convenience; the API automation comes last because it has the most moving parts outside our control.
+Recommendation (updated after inspecting the MCP server): build the data model and the fee/FX logic once and feed
+them from the MCP server from the start, because it already returns everything the CSV exports would, in a cleaner
+shape. The CSV importer stays an optional fallback. The daily pull is a scheduled Claude task with the connector
+attached: the model fetches, a tested script in the repository validates and writes to Supabase as the user, and
+the app syncs. The API path (stage 4b) is kept only in case the daily sessions become a nuisance.
 
-## Facts to confirm before building (stage 0)
+## What the Upwork MCP server actually returns (verified 2026-11-02)
 
-These could not be verified from the development container (upwork.com is not reachable from it). The user can
-settle them in ten minutes with one sample export and a look at their account:
+The connector was added to claude.ai and inspected read-only from a Claude session. Findings that shape the design:
 
-- Exact column names of the Transaction history CSV and of the weekly time report CSV. The importer is header
-  driven, so this only shapes the alias table, but we need one real file of each (a short date range is enough).
-- Where the currency conversion happens: does Upwork pay out to a EUR bank account (Upwork sets the rate, and the
-  Withdrawal row shows USD while the bank statement shows EUR), or does the user withdraw USD to Wise/Payoneer and
-  convert there? The EUR amount per payout has to come from somewhere: the bank/Wise statement, typed in by hand,
-  or an exchange-rate feed as an estimate.
-- Whether "VAT for Service Fee" rows appear (they do when no EU VAT number is on file). If they do, they are a cost
-  like the fee and are allocated the same way.
-- Fee history relevant to the user's contracts. Public record: flat 10 % before 3 May 2016; sliding scale per client
-  from 3 May 2016 (20 % on the first 500 USD lifetime billings per client, 10 % up to 10 000 USD, 5 % above);
-  flat 10 % for everyone again from 3 May 2023 with a transition for existing contracts. Because the actual fee is a
-  row in the transaction history, the fee schedule is only needed to *estimate* the fee of the current, not yet
-  settled week.
-- Whether Upwork hours were tracked with the desktop tracker (10-minute segments, already "billing-normalised") or
-  logged manually. Either way Upwork hours are taken as billed exactly as Upwork shows them: the app's own 15-minute
-  rounding does not apply to them.
-- How far back the history should go, and the list of Upwork clients and contracts so they can be mapped to the
-  app's clients and projects (most will be new clients; some may be existing ones who also hired through Upwork).
+- **Accounts.** Two: the freelancer account (all contracts, time and money live here) and the agency "Actus BI"
+  (no contracts, no transactions). Only the freelancer `org_uid` is needed.
+- **Time report** (`get_freelancer_financials` / `list_contracts` action `timesheets`): one row per **contract and
+  day** with `dateWorkedOn`, `weekWorkedOn` (Monday), `totalHoursWorked` (decimal hours, 10-minute granularity),
+  `totalCharges` (USD), `memo` (often empty), online/offline split, `termId`. **No start and end times.** The
+  effective rate is `totalCharges / totalHoursWorked` and it changes over time within a contract (70 USD/h in
+  November 2025, 80 USD/h in October 2026 on the same contract), so the rate is taken per row, never from the
+  contract. Pages hold at most 10 rows and a range may span at most 53 weeks: a year of two active contracts is
+  roughly 50 calls, fine for a daily pull, slow but workable for the backfill.
+- **Transactions** (`transactions`, up to 200 rows per call, 53-week range): a clean ledger with `recordId`,
+  `accountingSubtype`, `type`, `transactionAmount` (USD, signed), `transactionCreationDate`, contract/client fields.
+  Subtypes seen: `Hourly` (one weekly invoice per contract, description `(contractId) Client - 37:10 hrs @ $80.00/hr -
+  10/12/2026 - 10/18/2026`), `Service Fee` (one per weekly invoice, description states `Amount x 10% = fee` and the
+  contract id), `Withdrawal` ("Direct to Local Bank", USD), `Withdrawal Fee` (0.99 USD), `Membership Fee` and its
+  `Payment` (Freelancer Plus). No VAT rows: nothing to allocate there. Fixed-price and bonus rows did not occur in
+  the sampled period; their subtypes are to be mapped when they first appear.
+- **Payouts are in USD only.** The withdrawal row has no EUR amount and no rate; Upwork converts for the "Direct
+  to Local Bank" transfer, so the EUR received is known only from the bank statement or the withdrawal receipt
+  e-mail. Hence the payouts list in the app, where the EUR amount is typed in or imported, with an ECB-based
+  estimate until then.
+- **Summary** (`summary`): per client and job, billed / fee / tax / earned for a period; a good cross-check for
+  the allocation (fee equals exactly 10 % of billed in the sample) but not a source of rows.
+- **Contracts** (`list_contracts` action `search` with `contract_statuses`): id, title, client organisation,
+  start/end dates, status. Eight active contracts at the time of writing; several are long-running
+  frameworks with sporadic hours. The contract id appears in every time row and in every fee description, so
+  it is the join key everywhere.
+- **Job search** (`find_jobs`): keyword and title search with filters (type, rate, experience, client history,
+  payment verification, proposals so far), `smart_search` for Upwork's own recommendations with a real date
+  filter, and `get` for full details including the client's hiring record. `manage_proposals` drafts a proposal
+  as a preview that still needs an explicit confirmation, and submitting costs Connects. Everything needed for
+  the job-scout idea, with the human kept on the submit step.
+
+Still to settle with the user: how far back the backfill should go, and whether EUR amounts per payout come from
+a bank CSV, the Upwork receipt e-mails, or are typed in.
 
 ## Data model
 
@@ -76,7 +93,10 @@ One Upwork contract maps to one project; the contract id makes re-imports idempo
 
 **TimeEntry**: `source: 'upwork'` (new value), `externalId` (contract id + date, or milestone id) for idempotency,
 `grossAmount` (= `amount`, USD), and the derived, cached settlement fields `fee`, `net`, `payoutId`, `fxRate`,
-`netEur`, plus `settlement: 'actual' | 'estimated'`. Fixed-price entries carry `estimatedHours: true`.
+`netEur`, plus `settlement: 'actual' | 'estimated'`. Fixed-price entries carry `estimatedHours: true`. Upwork rows
+have no clock times: such entries get `timeless: true`, `startTime`/`endTime` are left as a convention (`00:00`
+plus the duration) and every screen shows the duration only. `hourlyRate` is the row's `totalCharges /
+totalHoursWorked`; `billedMin` equals the real minutes (Upwork has already billed them).
 
 **New table `upworkTransactions`**: the raw transaction history, one row per Upwork transaction: `txId`, `date`,
 `type` (hourly, fixed, bonus, fee, vat, withdrawal, withdrawalFee, refund, other), `description`, `contractId`,
@@ -113,11 +133,14 @@ a re-import or a corrected payout amount just triggers a recalculation.
 one weekly time report CSV; answer the questions above. Output: the alias tables and test fixtures are written from
 real headers (synthetic values, as always).
 
-**Stage 1 — Model and CSV import (1 session).** Types, Dexie v3, `supabase/schema.sql`, sync mapping both ways,
-backup/restore and master export covering the new table and fields. Importer for both CSV shapes with idempotent
-keys, a mapping step (Upwork client → app client, contract → project, created on first import), and an "Upwork"
-section on the Data screen. Upwork entries appear everywhere with gross USD; reports show them in USD. Tests: unit
-tests on synthetic fixtures, sync tests for the new table, e2e import.
+**Stage 1 — Model and Upwork import (1 session).** Types, Dexie v3, `supabase/schema.sql`, sync mapping both ways,
+backup/restore and master export covering the new table and fields. An import format (`upwork-import.json`:
+contracts, daily time rows, transactions as the MCP server returns them) with idempotent keys, a mapping step
+(Upwork client → app client, contract → project, created on first import), and an "Upwork" section on the Data
+screen that accepts the file. The scripted writer for Supabase (`scripts/upwork-ingest.ts`) uses the same import
+code. Backfill: Claude pulls the history through the connector into import files, year by year. Upwork entries
+appear everywhere with gross USD; reports show them in USD. Tests: unit tests on synthetic fixtures shaped like
+the real rows, sync tests for the new table, e2e import.
 
 **Stage 2 — Fees and FX (1 session).** Fee allocation, payout FIFO allocation, EUR amounts per payout (typed in
 on a payouts list, with import from a bank/Wise CSV if a sample is available), ECB estimate for unpaid work,
@@ -127,13 +150,13 @@ a fee total; the customer summary stays gross, as Upwork clients see it.
 **Stage 3 — Fixed-price milestones (½ session).** The "milestones without hours" list and the entry creation
 flow above; estimated-hours badge; the hours report counts them.
 
-**Stage 4 — Automation (1–2 sessions, depends on Upwork approving an API application).**
-a) *Assistant path, available immediately:* the user adds the official Upwork MCP server as a connector; Claude
-   pulls the week's time report and transactions and produces the import JSON the app already understands.
-b) *Automatic path:* Edge Function `upwork-sync` holding the API client secret and the user's refresh token (in a
-   Supabase table with row level security), an OAuth callback to connect the account once, and a weekly scheduled
-   run (Supabase cron) that pulls time reports and transactions into the cloud tables; the app receives them
-   through the existing sync. Manual CSV import stays as the fallback.
+**Stage 4 — Daily automation (½ session, plus secrets on the user's side).**
+a) *Scheduled Claude task:* fires daily with the Upwork connector attached, pulls yesterday's time rows and the
+   new transactions, runs `scripts/upwork-ingest.ts`, which validates and writes to Supabase signed in as the
+   user (e-mail and password from environment secrets, never from the repository), and reports a one-line
+   summary. The app picks the rows up through sync.
+b) *Fallback without Claude:* Edge Function `upwork-sync` on Upwork's API with a weekly schedule. Only if (a)
+   proves too costly or unreliable; it needs an approved API application.
 
 **Stage 5 — Analysis and tax report.** Both planned features read the same entries; Upwork rows contribute net EUR
 and hours, flagged where estimated.
