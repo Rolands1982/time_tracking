@@ -109,6 +109,7 @@ export function classifyTransaction(subtype: string | undefined): UpworkTxType {
 }
 
 const money = (s: string) => Number(s.replace(/,/g, ''))
+const round2 = (n: number) => Math.round(n * 100) / 100
 const usDate = (m: string, d: string, y: string) => `${y}-${m}-${d}`
 
 /** Parse the facts hidden in Upwork's free-text descriptions. */
@@ -142,11 +143,11 @@ export function parseTransaction(row: UpworkTxRow): UpworkTransaction {
   }
   const term = /Contract ID:\s*(\d+)/i.exec(description)
   if (term) t.termId = term[1]
-  // "$3146.67 USD x 10% = $314.67 USD"
-  const fee = /\$([\d.,]+)\s*USD\s*x\s*([\d.]+)%\s*=/.exec(description)
-  if (fee) {
-    t.feeBase = money(fee[1])
-    t.feePercent = Number(fee[2])
+  // "$3146.67 USD x 10% = $314.67 USD"; a blended fee lists one such line per tier, the base is their sum.
+  const tiers = [...description.matchAll(/\$([\d.,]+)\s*USD\s*x\s*([\d.]+)%\s*=/g)]
+  if (tiers.length) {
+    t.feeBase = round2(tiers.reduce((s, m) => s + money(m[1]), 0))
+    t.feePercent = tiers.length === 1 ? Number(tiers[0][2]) : t.feeBase > 0 ? round2((Math.abs(amount) / t.feeBase) * 100) : undefined
   }
   const client = /Client:\s*(.+)/.exec(description)
   if (client && !t.clientName) t.clientName = client[1].trim()
@@ -217,8 +218,6 @@ export interface UpworkImportReport {
   transactions: { added: number; updated: number; unchanged: number }
   warnings: string[]
 }
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 /** Display name for an Upwork client organisation; anonymous ones get the id so they stay distinct. */
 export function upworkClientName(org: { id?: string; name?: string } | undefined, contractId: string): string {

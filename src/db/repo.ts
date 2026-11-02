@@ -312,10 +312,17 @@ export interface Totals {
   billedAmount: number
   unbilledAmount: number
   unbilledMin: number
+  /** Platform fees and what is left after them, in the entries' currency; EUR after the exchange rate. */
+  feeAmount: number
+  netAmount: number
+  netAmountEur: number
+  /** Billable entries whose EUR value is unknown (no rate yet) and whose fee or rate is still an estimate. */
+  eurMissing: number
+  estimated: number
 }
 
 export function totals(entries: TimeEntry[]): Totals {
-  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0 }
+  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0 }
   for (const e of entries) {
     t.count++
     t.durationMin += e.durationMin
@@ -326,6 +333,11 @@ export function totals(entries: TimeEntry[]): Totals {
       continue
     }
     t.amount += e.amount
+    t.feeAmount += e.feeAmount ?? 0
+    t.netAmount += e.netAmount ?? e.amount - (e.feeAmount ?? 0)
+    if (e.netAmountEur != null) t.netAmountEur += e.netAmountEur
+    else t.eurMissing++
+    if (e.settlement === 'estimated') t.estimated++
     if (e.isBilled) t.billedAmount += e.amount
     else {
       t.unbilledAmount += e.amount

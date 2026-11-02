@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { Link } from 'react-router-dom'
 import { db } from '../db/schema'
+import { recalculateUpwork, refreshRatesAndRecalculate } from '../lib/upwork/allocate'
 import { importUpwork, isUpworkImportFile, type UpworkImportFile, type UpworkImportReport } from '../lib/upwork/import'
 import { formatMoney } from '../lib/time'
 import { useToast } from './toastContext'
@@ -53,6 +55,9 @@ export default function UpworkImportCard() {
       const r = await importUpwork(file)
       setReport(r)
       toast(`Upwork: ${r.entries.added} new rows, ${r.entries.updated} updated, ${r.entries.removed} removed, ${r.transactions.added} new transactions`)
+      const s = await recalculateUpwork()
+      if (s.updated) toast(`Fees and exchange rates: ${s.updated} entries settled, ${s.estimated} still estimated`)
+      if (s.estimated > 0) void refreshRatesAndRecalculate().then((x) => x.updated && toast(`ECB rates: ${x.updated} estimates updated`))
       setFile(null)
       setInputKey((k) => k + 1)
     } catch (err) {
@@ -67,8 +72,9 @@ export default function UpworkImportCard() {
       <h2>Upwork</h2>
       <div className="card stack">
         <p className="muted small">
-          Hours and money pulled from Upwork (contracts, daily time, the transaction ledger). Days are matched by contract and date, so a file can be
-          loaded again at any time. Fees and exchange rates start as estimates and become actual once the matching Upwork rows are allocated.
+          Hours and money pulled from Upwork (contracts, time rows, the transaction ledger). Rows are matched by contract, day and memo, so a file
+          can be loaded again at any time. Fees come from Upwork's fee rows; exchange rates from the payouts once their EUR amounts are known,
+          until then from the ECB rate of the day (marked as estimates).
         </p>
         {stats && stats.entries > 0 && (
           <div className="stat-grid">
@@ -90,6 +96,11 @@ export default function UpworkImportCard() {
               <div className="label">{stats.txCount} transactions</div>
             </div>
           </div>
+        )}
+        {stats && stats.txCount > 0 && (
+          <Link className="btn block" to="/upwork/payouts" data-testid="upwork-payouts">
+            Payouts and exchange rates
+          </Link>
         )}
         <input key={inputKey} type="file" accept=".json,application/json" onChange={(e) => void onPick(e.target.files?.[0] ?? null)} aria-label="Upwork import file" />
         {file && (

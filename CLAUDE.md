@@ -63,6 +63,11 @@ Conventions that matter:
   the one user-entered field); entries are one per contract, day and memo, keyed by `externalId` = `upwork:<contractId>:<date>:<memoId>`
   (memo id = tail of the MCP row cursor); hours with zero charges import as non-billable; projects carry
   `upwork.contractId`, clients `upworkClientId`. Fee rows reference the *term* id, time rows map term → contract.
+  Settlement (`src/lib/upwork/allocate.ts`) is derived from the ledger and cached on the entries: fees link to
+  invoices by contract and day, payouts pay the oldest earnings first (FIFO), an entry's `fxRate` is that of the
+  payout that covered its invoice (EUR amount typed in on the Payouts screen), otherwise the ECB rate of the day
+  (`src/lib/fx.ts`, cached in `settings.upwork.fxRates`) and `settlement: 'estimated'`. Run
+  `recalculateWithRates()` after imports and payout edits; never edit the cached columns by hand.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.

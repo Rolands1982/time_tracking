@@ -158,7 +158,7 @@ code. Backfill: Claude pulls the history through the connector into import files
 appear everywhere with gross USD; reports show them in USD. Tests: unit tests on synthetic fixtures shaped like
 the real rows, sync tests for the new table, e2e import.
 
-**Stage 2 — Fees and FX (1 session).** Fee allocation, payout FIFO allocation, EUR amounts per payout (typed in
+**Stage 2 — Fees and FX (1 session; done except the bank-statement import, which waits for a sample).** Fee allocation, payout FIFO allocation, EUR amounts per payout (typed in
 on a payouts list, with import from a bank/Wise CSV if a sample is available), ECB estimate for unpaid work,
 recalculation, "estimated" badges. Reports and Entries gain a currency switch (USD gross / USD net / EUR net) and
 a fee total; the customer summary stays gross, as Upwork clients see it.
