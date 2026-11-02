@@ -91,12 +91,28 @@ derived.
 **Project** (= Upwork contract): `upwork?: { contractId: string; type: 'hourly' | 'fixed'; rate?: number }`.
 One Upwork contract maps to one project; the contract id makes re-imports idempotent.
 
-**TimeEntry**: `source: 'upwork'` (new value), `externalId` (contract id + date, or milestone id) for idempotency,
-`grossAmount` (= `amount`, USD), and the derived, cached settlement fields `fee`, `net`, `payoutId`, `fxRate`,
-`netEur`, plus `settlement: 'actual' | 'estimated'`. Fixed-price entries carry `estimatedHours: true`. Upwork rows
-have no clock times: such entries get `timeless: true`, `startTime`/`endTime` are left as a convention (`00:00`
-plus the duration) and every screen shows the duration only. `hourlyRate` is the row's `totalCharges /
-totalHoursWorked`; `billedMin` equals the real minutes (Upwork has already billed them).
+**TimeEntry** (money columns on every entry, so reports sum in one currency):
+
+| Column         | Meaning                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------- |
+| `currency`     | ISO code of the amounts below, copied from the client when the entry is saved; existing rows get EUR |
+| `amount`       | gross in `currency` (unchanged name, so nothing existing breaks)                             |
+| `feeAmount`    | platform fee in `currency`; 0 for direct clients                                             |
+| `netAmount`    | `amount − feeAmount` in `currency`                                                           |
+| `fxRate`       | rate from `currency` to EUR used for this entry; 1 for EUR entries                           |
+| `netAmountEur` | `netAmount × fxRate`: the figure analysis and the tax report sum                             |
+| `settlement`   | `actual` when fee and rate come from real Upwork rows, `estimated` until then                 |
+| `payoutId`     | the withdrawal that paid this entry, for traceability                                        |
+
+Gross in EUR is not stored (`amount × fxRate`, display only). Direct clients get the trivial values: fee 0, net =
+gross, rate 1, settlement actual. Reports gain a currency switch: gross in the client's currency, net in the
+client's currency, net in EUR across all clients. The customer summary stays gross in the client's currency.
+
+Upwork-specific: `source: 'upwork'` (new value), `externalId` (contract id + date, or milestone id) for
+idempotency. Upwork rows have no clock times: such entries get `timeless: true`, `startTime`/`endTime` are left
+as a convention (`00:00` plus the duration) and every screen shows the duration only. `hourlyRate` is the row's
+`totalCharges / totalHoursWorked`; `billedMin` equals the real minutes (Upwork has already billed them).
+Fixed-price entries carry `estimatedHours: true`.
 
 **New table `upworkTransactions`**: the raw transaction history, one row per Upwork transaction: `txId`, `date`,
 `type` (hourly, fixed, bonus, fee, vat, withdrawal, withdrawalFee, refund, other), `description`, `contractId`,
@@ -125,7 +141,7 @@ a re-import or a corrected payout amount just triggers a recalculation.
    `hourlyRate` = gross ÷ hours (effective rate), `estimatedHours: true`. Fee and FX allocation then treat it like
    hourly work. Bonuses are handled the same way with zero hours allowed.
 4. **Recalculation.** `recalculateUpwork()` runs after every import or edit of a payout amount; it rewrites only the
-   cached settlement fields of Upwork entries. Reports read the cached fields, so they stay fast.
+   cached settlement fields (`feeAmount`, `netAmount`, `fxRate`, `netAmountEur`, `settlement`, `payoutId`) of Upwork entries. Reports read the cached fields, so they stay fast.
 
 ## Stages
 
