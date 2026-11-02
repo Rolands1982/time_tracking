@@ -173,7 +173,10 @@ create policy "own upwork transactions" on public.upwork_transactions for all to
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- ------------------------------------------------------------------ reporting view (Power BI, SQL)
-create or replace view public.entries_report
+-- The view is dropped first: "create or replace" cannot insert or reorder columns, and this view grew in
+-- the middle. Nothing depends on it (reporting only), so recreating it is free.
+drop view if exists public.entries_report;
+create view public.entries_report
 with (security_invoker = true) as
 select e.id,
        e.date,
