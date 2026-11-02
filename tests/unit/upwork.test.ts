@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
-import { classifyTransaction, feePercentFor, importUpwork, mergeUpworkFiles, parseTransaction, timeRowKey, upworkClientName, type UpworkImportFile } from '../../src/lib/upwork/import'
+import { classifyTransaction, feePercentFor, importUpwork, mergeUpworkFiles, parseTransaction, resolveContract, timeRowKey, upworkClientName, type UpworkContractRow, type UpworkImportFile } from '../../src/lib/upwork/import'
 
 let db: TimeTrackingDB
 let n = 0
@@ -69,6 +69,39 @@ describe('Upwork transactions', () => {
     expect(timeRowKey(file.time![0])).toBe('36599829:2026-10-12:1446010756')
     expect(timeRowKey({ contract: { id: '1' }, dateWorkedOn: '2026-01-02', totalHoursWorked: 1, totalCharges: 10, memo: ' Skype ' })).toBe('1:2026-01-02:Skype')
     expect(timeRowKey({ contract: { id: '1' }, dateWorkedOn: '2026-01-02', totalHoursWorked: 1, totalCharges: 10 })).toBe('1:2026-01-02:-')
+  })
+
+  it('ties transactions to contracts by term, by an id anywhere in the text, or by fixed-price title', () => {
+    const contracts = new Map<string, UpworkContractRow>([
+      ['36599829', file.contracts![0]],
+      ['20915947', { id: '20915947', title: 'Business plan', startDate: '2018-10-01', endDate: '2018-12-01', clientOrganization: { id: '9', name: 'Microsoft: Upwork Talent Group' } }],
+      ['21000000', { id: '21000000', title: 'Business plan', startDate: '2019-03-01', endDate: '2019-04-01', clientOrganization: { id: '9', name: 'Microsoft: Upwork Talent Group' } }],
+      ['22000000', { id: '22000000', title: 'Business plan', startDate: '2019-03-01', clientOrganization: { id: '8', name: 'Someone Else' } }],
+    ])
+    const terms = new Map([['42838462', '36599829']])
+    const tx = (description: string, extra: Partial<UpworkImportFile['transactions'][number]> = {}) =>
+      parseTransaction({ recordId: '1', accountingSubtype: 'Fixed Price', type: 'APInvoice', description, transactionAmount: { currency: 'USD', rawValue: '10' }, transactionCreationDate: '2019-03-10T00:00:00+0000', ...extra })
+    // Fee for a fixed-price contract: the term id is the contract id.
+    const fee = tx('Service Fee\nContract ID: 20915947\nContract title: Business plan\nClient: x\nAmount: $100.00 USD x 10% = $10.00 USD', { accountingSubtype: 'Service Fee' })
+    resolveContract(fee, contracts, terms)
+    expect(fee.contractId).toBe('20915947')
+    // Reversed bonus: the id sits in the middle of the text.
+    const reversed = tx('Reversed Bonus ref 288619456 - (36599829) Northwind Supply - Bonus', { accountingSubtype: 'Bonus' })
+    resolveContract(reversed, contracts, terms)
+    expect(reversed.contractId).toBe('36599829')
+    // Fixed-price invoice: title shared by three contracts; client name and dates pick one.
+    const invoice = tx('Invoice for Business plan: Milestone 1 - Draft', { assignmentCompanyName: 'Microsoft: Upwork Talent Group' })
+    resolveContract(invoice, contracts, terms)
+    expect(invoice.contractId).toBe('21000000')
+    const unknownClient = tx('Invoice for Business plan: Milestone 1 - Draft', { transactionCreationDate: '2018-11-10T00:00:00+0000' })
+    resolveContract(unknownClient, contracts, terms)
+    expect(unknownClient.contractId).toBe('20915947')
+    const ambiguous = tx('Invoice for Business plan: Milestone 1 - Draft')
+    resolveContract(ambiguous, contracts, terms)
+    expect(ambiguous.contractId).toBeUndefined()
+    const noSuchTitle = tx('Invoice for Nothing: Milestone 1 - Draft')
+    resolveContract(noSuchTitle, contracts, terms)
+    expect(noSuchTitle.contractId).toBeUndefined()
   })
 
   it('names anonymous client organisations by id', () => {

@@ -19,7 +19,7 @@ export default function UpworkImportCard() {
       const txCount = await db.upworkTransactions.count()
       const dates = entries.map((e) => e.date).sort()
       return {
-        entries: entries.length,
+        entries: new Set(dates).size,
         minutes: entries.reduce((s, e) => s + e.durationMin, 0),
         gross: entries.reduce((s, e) => s + e.amount, 0),
         estimated: entries.filter((e) => e.settlement !== 'actual').length,

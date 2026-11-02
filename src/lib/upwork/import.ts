@@ -153,6 +153,50 @@ export function parseTransaction(row: UpworkTxRow): UpworkTransaction {
   return t
 }
 
+/**
+ * Tie a transaction to its contract. Hourly invoices name the contract or, after a rate change, the term;
+ * fee rows name the term (which for fixed-price contracts is the contract id itself); fixed-price invoices
+ * only carry the contract title, so they are matched by title, then client name and contract dates when
+ * several contracts share a title. Rows that stay unresolved keep contractId undefined.
+ */
+export function resolveContract(t: UpworkTransaction, contracts: Map<string, UpworkContractRow>, termToContract: Map<string, string>): void {
+  if (t.contractId && contracts.has(t.contractId)) return
+  if (t.contractId && termToContract.has(t.contractId)) {
+    t.termId ??= t.contractId
+    t.contractId = termToContract.get(t.contractId)
+    return
+  }
+  if (t.termId && termToContract.has(t.termId)) {
+    t.contractId = termToContract.get(t.termId)
+    return
+  }
+  if (t.termId && contracts.has(t.termId)) {
+    t.contractId = t.termId
+    return
+  }
+  if (t.type !== 'hourly' && t.type !== 'fixed' && t.type !== 'bonus') return
+  // "Reversed Bonus ref 288619456 - (23791962) Client - Bonus"
+  const anywhere = /\((\d{6,})\)/.exec(t.description)
+  if (anywhere && contracts.has(anywhere[1])) {
+    t.contractId = anywhere[1]
+    return
+  }
+  // "Invoice for <contract title>: Milestone 1 - <milestone>"
+  const titled = /^Invoice for (.+?): Milestone/.exec(t.description) ?? /^Invoice for (.+)$/.exec(t.description)
+  if (!titled) return
+  const title = titled[1].trim().toLowerCase()
+  let candidates = [...contracts.values()].filter((c) => c.title.trim().toLowerCase() === title)
+  if (candidates.length > 1 && t.clientName) {
+    const byClient = candidates.filter((c) => c.clientOrganization?.name?.trim().toLowerCase() === t.clientName!.trim().toLowerCase())
+    if (byClient.length) candidates = byClient
+  }
+  if (candidates.length > 1) {
+    const inRange = candidates.filter((c) => (!c.startDate || c.startDate.slice(0, 10) <= t.date) && (!c.endDate || t.date <= addDays(c.endDate.slice(0, 10), 14)))
+    if (inRange.length) candidates = inRange
+  }
+  if (candidates.length === 1) t.contractId = String(candidates[0].id)
+}
+
 // ---------------------------------------------------------------- fee estimate
 
 export const DEFAULT_FEE_PERCENT = 10
@@ -206,14 +250,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
   const parsedTx = (file.transactions ?? []).map(parseTransaction)
   const fixedContracts = new Set(parsedTx.filter((t) => t.type === 'fixed' && t.contractId).map((t) => t.contractId!))
   for (const t of parsedTx) if (t.type === 'hourly' && t.contractId) fixedContracts.delete(t.contractId)
-  // Fee rows name the term; hourly invoices name the contract or, after a rate change, the term.
-  for (const t of parsedTx) {
-    if (!t.contractId && t.termId && termToContract.has(t.termId)) t.contractId = termToContract.get(t.termId)
-    else if (t.contractId && !contracts.has(t.contractId) && termToContract.has(t.contractId)) {
-      t.termId ??= t.contractId
-      t.contractId = termToContract.get(t.contractId)
-    }
-  }
+  for (const t of parsedTx) resolveContract(t, contracts, termToContract)
 
   await database.transaction('rw', [database.clients, database.projects, database.entries, database.upworkTransactions, database.settings, database.tombstones], async () => {
     const clients = await database.clients.toArray()

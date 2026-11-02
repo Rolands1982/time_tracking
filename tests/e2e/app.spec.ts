@@ -118,9 +118,9 @@ test('track time with the timer, add an entry, import Excel and see reports', as
     }),
   )
   await page.getByLabel('Upwork import file').setInputFiles(upworkPath)
-  await expect(page.getByText(/1 contracts, 1 days of time, 1 transactions/)).toBeVisible()
+  await expect(page.getByText(/1 contracts, 1 time rows, 1 transactions/)).toBeVisible()
   await page.getByTestId('upwork-import').click()
-  await expect(page.getByText(/Upwork: 1 new days/)).toBeVisible()
+  await expect(page.getByText(/Upwork: 1 new rows/)).toBeVisible()
   await expect(page.getByText('Upwork days')).toBeVisible()
   await page.getByRole('link', { name: 'Entries' }).click()
   await expect(page.getByText('Northwind Supply · RPA Developer')).toBeVisible()
