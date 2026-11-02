@@ -40,6 +40,8 @@ alter table public.clients add column if not exists registration_number text;
 alter table public.clients add column if not exists vat_number text;
 alter table public.clients add column if not exists vat_applicable boolean;
 alter table public.clients add column if not exists address text;
+alter table public.clients add column if not exists platform text;
+alter table public.clients add column if not exists upwork_client_id text;
 create index if not exists clients_user_synced on public.clients (user_id, synced_at);
 drop trigger if exists clients_synced_at on public.clients;
 create trigger clients_synced_at before insert or update on public.clients
@@ -57,6 +59,8 @@ create table if not exists public.projects (
   synced_at     timestamptz not null default now(),
   deleted_at    timestamptz
 );
+alter table public.projects add column if not exists upwork_contract_id text;
+alter table public.projects add column if not exists upwork_type text;
 create index if not exists projects_user_synced on public.projects (user_id, synced_at);
 create index if not exists projects_client on public.projects (client_id);
 drop trigger if exists projects_synced_at on public.projects;
@@ -95,7 +99,19 @@ create table if not exists public.entries (
 alter table public.entries add column if not exists billed_start_time time;
 alter table public.entries add column if not exists billed_end_time time;
 alter table public.entries add column if not exists billed_min integer;
+-- Money columns (docs/plans/upwork-integration.md): amount is the gross in currency.
+alter table public.entries add column if not exists currency text;
+alter table public.entries add column if not exists fee_amount numeric(12, 2);
+alter table public.entries add column if not exists net_amount numeric(12, 2);
+alter table public.entries add column if not exists fx_rate numeric(14, 8);
+alter table public.entries add column if not exists net_amount_eur numeric(12, 2);
+alter table public.entries add column if not exists settlement text;
+alter table public.entries add column if not exists payout_id text;
+alter table public.entries add column if not exists external_id text;
+alter table public.entries add column if not exists timeless boolean;
+alter table public.entries add column if not exists estimated_hours boolean;
 create index if not exists entries_user_synced on public.entries (user_id, synced_at);
+create index if not exists entries_external on public.entries (user_id, external_id);
 create index if not exists entries_user_date on public.entries (user_id, date);
 create index if not exists entries_client on public.entries (client_id);
 drop trigger if exists entries_synced_at on public.entries;
@@ -116,6 +132,42 @@ create policy "own clients"  on public.clients  for all to authenticated
 create policy "own projects" on public.projects for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own entries"  on public.entries  for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ------------------------------------------------------------------ upwork transactions (raw ledger)
+create table if not exists public.upwork_transactions (
+  id            uuid primary key,
+  user_id       uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  tx_id         text not null,
+  date          date not null,
+  type          text not null,
+  subtype       text not null default '',
+  description   text not null default '',
+  amount        numeric(12, 2) not null,
+  currency      text not null default 'USD',
+  client_name   text,
+  contract_id   text,
+  term_id       text,
+  period_from   date,
+  period_to     date,
+  hours         numeric(10, 4),
+  rate          numeric(12, 2),
+  fee_base      numeric(12, 2),
+  fee_percent   numeric(6, 3),
+  eur_amount    numeric(12, 2),
+  eur_date      date,
+  updated_at    timestamptz not null default now(),
+  synced_at     timestamptz not null default now(),
+  deleted_at    timestamptz
+);
+create index if not exists upwork_tx_user_synced on public.upwork_transactions (user_id, synced_at);
+create index if not exists upwork_tx_user_date on public.upwork_transactions (user_id, date);
+drop trigger if exists upwork_tx_synced_at on public.upwork_transactions;
+create trigger upwork_tx_synced_at before insert or update on public.upwork_transactions
+  for each row execute function public.set_synced_at();
+alter table public.upwork_transactions enable row level security;
+drop policy if exists "own upwork transactions" on public.upwork_transactions;
+create policy "own upwork transactions" on public.upwork_transactions for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- ------------------------------------------------------------------ reporting view (Power BI, SQL)
@@ -142,7 +194,15 @@ select e.id,
        e.invoice_ref,
        e.billable,
        e.source,
-       to_char(e.date, 'YYYY-MM') as month
+       to_char(e.date, 'YYYY-MM') as month,
+       coalesce(e.currency, c.currency) as currency,
+       coalesce(e.fee_amount, 0) as fee_amount,
+       coalesce(e.net_amount, e.amount) as net_amount,
+       e.fx_rate,
+       e.net_amount_eur,
+       e.settlement,
+       e.external_id,
+       e.timeless
 from public.entries e
 join public.clients c on c.id = e.client_id
 left join public.projects p on p.id = e.project_id

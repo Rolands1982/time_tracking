@@ -1,7 +1,9 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie'
-import type { Client, Project, Settings, SyncTable, TimeEntry, Tombstone } from './types'
+import type { Client, Project, Settings, SyncTable, TimeEntry, Tombstone, UpworkTransaction } from './types'
 
-export const SYNC_TABLES: readonly SyncTable[] = ['clients', 'projects', 'entries']
+export const SYNC_TABLES: readonly SyncTable[] = ['clients', 'projects', 'entries', 'upworkTransactions']
+
+type SyncedRow = Client | Project | TimeEntry | UpworkTransaction
 
 export function newUid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
@@ -26,6 +28,7 @@ export class TimeTrackingDB extends Dexie {
   projects!: EntityTable<Project, 'id'>
   settings!: EntityTable<Settings, 'id'>
   tombstones!: EntityTable<Tombstone, 'id'>
+  upworkTransactions!: EntityTable<UpworkTransaction, 'id'>
 
   constructor(name = 'time-tracking') {
     super(name)
@@ -45,7 +48,7 @@ export class TimeTrackingDB extends Dexie {
       })
       .upgrade(async (tx) => {
         const now = new Date().toISOString()
-        for (const table of SYNC_TABLES) {
+        for (const table of ['clients', 'projects', 'entries'] as const) {
           await tx
             .table(table)
             .toCollection()
@@ -56,10 +59,33 @@ export class TimeTrackingDB extends Dexie {
             })
         }
       })
+    // v3: money columns on entries (currency, fee, net, EUR), platform fields, Upwork transactions.
+    this.version(3)
+      .stores({
+        entries: '++id, &uid, dirty, date, clientId, projectId, isBilled, invoiceDate, importKey, externalId, source, [clientId+isBilled]',
+        clients: '++id, &uid, dirty, &name',
+        projects: '++id, &uid, dirty, clientId, [clientId+name]',
+        settings: 'id',
+        tombstones: '++id, table, uid',
+        upworkTransactions: '++id, &uid, dirty, &txId, date, type, contractId',
+      })
+      .upgrade(async (tx) => {
+        const clients = (await tx.table('clients').toArray()) as Client[]
+        const currencyOf = new Map(clients.map((c) => [c.id!, c.currency || 'EUR']))
+        await tx
+          .table('entries')
+          .toCollection()
+          .modify((e: TimeEntry) => {
+            if (e.currency) return
+            const currency = currencyOf.get(e.clientId) ?? 'EUR'
+            const money = settleDirect(e.amount, currency)
+            Object.assign(e, money)
+          })
+      })
 
     for (const table of SYNC_TABLES) {
       const t = this.table(table)
-      t.hook('creating', function (_key, obj: Client | Project | TimeEntry, tx) {
+      t.hook('creating', function (_key, obj: SyncedRow, tx) {
         if (!obj.uid) obj.uid = newUid()
         if (REMOTE_TRANSACTIONS.has(tx)) {
           obj.dirty ??= 0
@@ -68,7 +94,7 @@ export class TimeTrackingDB extends Dexie {
           obj.updatedAt ??= new Date().toISOString()
         }
       })
-      t.hook('updating', function (mods: Partial<Client | Project | TimeEntry>, _key, _obj, tx) {
+      t.hook('updating', function (mods: Partial<SyncedRow>, _key, _obj, tx) {
         if (REMOTE_TRANSACTIONS.has(tx)) return undefined
         return { dirty: 1, updatedAt: mods.updatedAt ?? new Date().toISOString() }
       })
@@ -77,7 +103,7 @@ export class TimeTrackingDB extends Dexie {
 
   /** Run `fn` in a read-write transaction whose writes are not marked as local changes. */
   async remoteTransaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
-    return this.transaction('rw', [this.entries, this.clients, this.projects, this.settings, this.tombstones], async (tx) => {
+    return this.transaction('rw', [this.entries, this.clients, this.projects, this.settings, this.tombstones, this.upworkTransactions], async (tx) => {
       REMOTE_TRANSACTIONS.add(tx)
       return fn(tx)
     })
@@ -86,11 +112,24 @@ export class TimeTrackingDB extends Dexie {
   /** Delete a synced record and remember the deletion for the next push. */
   async deleteSynced(table: SyncTable, id: number): Promise<void> {
     await this.transaction('rw', [this.table(table), this.tombstones], async () => {
-      const row = (await this.table(table).get(id)) as Client | Project | TimeEntry | undefined
+      const row = (await this.table(table).get(id)) as SyncedRow | undefined
       if (!row) return
       await this.table(table).delete(id)
       if (row.uid) await this.tombstones.add({ table, uid: row.uid })
     })
+  }
+}
+
+/** Money columns for work billed directly (no platform): fee 0, net = gross, EUR at rate 1 when the currency is EUR. */
+export function settleDirect(amount: number, currency: string): Pick<TimeEntry, 'currency' | 'feeAmount' | 'netAmount' | 'fxRate' | 'netAmountEur' | 'settlement'> {
+  const eur = currency === 'EUR'
+  return {
+    currency,
+    feeAmount: 0,
+    netAmount: amount,
+    fxRate: eur ? 1 : undefined,
+    netAmountEur: eur ? amount : undefined,
+    settlement: eur ? 'actual' : 'estimated',
   }
 }
 

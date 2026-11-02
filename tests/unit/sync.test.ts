@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB, getSettings } from '../../src/db/schema'
 import { addEntry, deleteEntry, findOrCreateClient, findOrCreateProject, setBilled, updateEntry } from '../../src/db/repo'
 import { SyncEngine } from '../../src/sync/engine'
-import { SupabaseRemote, type Remote, type RemoteRow } from '../../src/sync/remote'
+import { remoteTable, SupabaseRemote, type Remote, type RemoteRow } from '../../src/sync/remote'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
 import { findDuplicates, removeDuplicates } from '../../src/db/repo'
 
 /** In-memory stand-in for the Supabase tables, including the server-side synced_at stamp. */
 class MemoryRemote implements Remote {
-  tables: Record<SyncTable, Map<string, RemoteRow>> = { clients: new Map(), projects: new Map(), entries: new Map() }
+  tables: Record<SyncTable, Map<string, RemoteRow>> = { clients: new Map(), projects: new Map(), entries: new Map(), upworkTransactions: new Map() }
   clock = 0
   calls: string[] = []
   private stamp() {
@@ -117,6 +117,31 @@ describe('push and pull between two devices', () => {
     remote.edit('clients', client.uid!, { rates: '[{"from":"2027-01-01","rate":"80"},{"nope":1}]', updated_at: '2040-01-01T00:00:00.000Z' })
     await new SyncEngine(remote, b).run()
     expect((await b.clients.toArray())[0].rates).toEqual([{ from: '2027-01-01', rate: 80 }])
+  })
+
+  it('replicates money columns and Upwork transactions, with the cloud table name mapped', async () => {
+    const { client } = await seed(a)
+    await a.entries.toCollection().modify({ currency: 'USD', feeAmount: 7.5, netAmount: 67.5, settlement: 'estimated', externalId: 'upwork:1:2026-10-20', timeless: true, source: 'upwork' })
+    await a.upworkTransactions.add({ txId: '960041226', date: '2026-10-18', type: 'hourly', subtype: 'Hourly', description: '(1) Acme - 1:30 hrs @ $50.00/hr', amount: 75, currency: 'USD', contractId: '1', hours: 1.5, rate: 50, periodFrom: '2026-10-12', periodTo: '2026-10-18' })
+    await new SyncEngine(remote, a).run()
+    const entryRow = [...remote.tables.entries.values()][0]
+    expect(entryRow).toMatchObject({ currency: 'USD', fee_amount: 7.5, net_amount: 67.5, settlement: 'estimated', external_id: 'upwork:1:2026-10-20', timeless: true, source: 'upwork' })
+    expect([...remote.tables.upworkTransactions.values()][0]).toMatchObject({ tx_id: '960041226', type: 'hourly', amount: 75, contract_id: '1', hours: 1.5, period_to: '2026-10-18' })
+
+    await new SyncEngine(remote, b).run()
+    expect((await b.entries.toArray())[0]).toMatchObject({ currency: 'USD', feeAmount: 7.5, netAmount: 67.5, settlement: 'estimated', externalId: 'upwork:1:2026-10-20', timeless: true, clientId: (await b.clients.toArray())[0].id })
+    const tx = (await b.upworkTransactions.toArray())[0]
+    expect(tx).toMatchObject({ txId: '960041226', type: 'hourly', amount: 75, hours: 1.5, rate: 50, periodFrom: '2026-10-12', dirty: 0 })
+    expect(tx.eurAmount).toBeUndefined()
+
+    // The EUR amount typed in on device b travels back to a.
+    await b.upworkTransactions.update(tx.id!, { eurAmount: 62.1, eurDate: '2026-10-20' })
+    await new SyncEngine(remote, b).run()
+    await new SyncEngine(remote, a).run()
+    expect((await a.upworkTransactions.toArray())[0]).toMatchObject({ eurAmount: 62.1, eurDate: '2026-10-20' })
+    expect(remoteTable('upworkTransactions')).toBe('upwork_transactions')
+    expect(remoteTable('entries')).toBe('entries')
+    void client
   })
 
   it('propagates edits, billing and deletions in both directions', async () => {

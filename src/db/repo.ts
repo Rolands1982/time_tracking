@@ -1,4 +1,4 @@
-import { db, getSettings, updateSettings, type TimeTrackingDB } from './schema'
+import { db, getSettings, settleDirect, updateSettings, type TimeTrackingDB } from './schema'
 import type { Client, Project, RatePeriod, RunningTimer, TimeEntry } from './types'
 import { roundInterval } from '../lib/rounding'
 import { computeAmount, durationMinutes, toHm, toIsoDate } from '../lib/time'
@@ -9,6 +9,9 @@ export type EntryInput = Omit<
   'id' | 'durationMin' | 'amount' | 'createdAt' | 'updatedAt' | 'source' | 'billedStartTime' | 'billedEndTime' | 'billedMin'
 > & {
   source?: TimeEntry['source']
+  /** Timeless (platform) rows: the duration and gross amount as reported, instead of deriving them from the times. */
+  durationMin?: number
+  amount?: number
   /**
    * Whether to derive the billed columns with the billing rules. Defaults to "keep what the
    * record had": normalised records stay normalised, old records stay untouched. New records
@@ -23,9 +26,10 @@ export function billedMinutes(e: Pick<TimeEntry, 'durationMin' | 'billedMin'>): 
 }
 
 export function buildEntry(input: EntryInput, existing?: TimeEntry): TimeEntry {
-  const durationMin = durationMinutes(input.startTime, input.endTime)
+  const timeless = input.timeless ?? existing?.timeless ?? false
+  const durationMin = timeless && input.durationMin != null ? input.durationMin : durationMinutes(input.startTime, input.endTime)
   const now = new Date().toISOString()
-  const normalize = input.normalize ?? existing?.billedMin != null
+  const normalize = !timeless && (input.normalize ?? existing?.billedMin != null)
   let billable = input.billable === false ? false : undefined
   let billed: Pick<TimeEntry, 'billedStartTime' | 'billedEndTime' | 'billedMin'> = {
     billedStartTime: undefined,
@@ -37,8 +41,25 @@ export function buildEntry(input: EntryInput, existing?: TimeEntry): TimeEntry {
     billed = { billedStartTime: r.startTime, billedEndTime: r.endTime, billedMin: r.durationMin }
     if (!r.billable) billable = false
   }
-  const { normalize: _ignored, ...fields } = input
+  const { normalize: _ignored, durationMin: _d, amount: _a, ...fields } = input
   void _ignored
+  void _d
+  void _a
+  const amount = timeless && input.amount != null ? input.amount : computeAmount(billed.billedMin ?? durationMin, input.hourlyRate)
+  const currency = input.currency ?? existing?.currency ?? 'EUR'
+  // Platform entries carry their own fee / rate columns (set by the import); direct work is settled trivially.
+  const money =
+    (input.source ?? existing?.source) === 'upwork'
+      ? {
+          currency,
+          feeAmount: input.feeAmount ?? existing?.feeAmount ?? 0,
+          netAmount: input.netAmount ?? existing?.netAmount ?? amount - (input.feeAmount ?? existing?.feeAmount ?? 0),
+          fxRate: input.fxRate ?? existing?.fxRate,
+          netAmountEur: input.netAmountEur ?? existing?.netAmountEur,
+          settlement: input.settlement ?? existing?.settlement ?? 'estimated',
+          payoutId: input.payoutId ?? existing?.payoutId,
+        }
+      : settleDirect(amount, currency)
   return {
     ...existing,
     ...fields,
@@ -49,16 +70,23 @@ export function buildEntry(input: EntryInput, existing?: TimeEntry): TimeEntry {
     billable,
     durationMin,
     ...billed,
-    amount: computeAmount(billed.billedMin ?? durationMin, input.hourlyRate),
+    amount,
+    ...money,
     source: input.source ?? existing?.source ?? 'manual',
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }
 }
 
+/** The currency an entry's amounts are in: its own column, else the client's, else EUR. */
+export function entryCurrency(e: Pick<TimeEntry, 'currency'>, client?: Pick<Client, 'currency'>): string {
+  return e.currency ?? client?.currency ?? 'EUR'
+}
+
 export async function addEntry(input: EntryInput, database: TimeTrackingDB = db): Promise<number> {
   const normalize = input.normalize ?? (await getSettings(database)).roundingMode !== 'exact'
-  const entry = buildEntry({ ...input, normalize })
+  const currency = input.currency ?? (await database.clients.get(input.clientId))?.currency ?? (await getSettings(database)).defaultCurrency
+  const entry = buildEntry({ ...input, normalize, currency })
   const id = await database.entries.add(entry)
   await updateSettings({ lastClientId: entry.clientId, lastProjectId: entry.projectId }, database)
   return id as number
@@ -71,7 +99,8 @@ export async function updateEntry(
 ): Promise<void> {
   const existing = await database.entries.get(id)
   if (!existing) throw new Error(`Entry ${id} not found`)
-  await database.entries.put({ ...buildEntry(input, existing), id })
+  const currency = input.currency ?? existing.currency ?? (await database.clients.get(input.clientId))?.currency
+  await database.entries.put({ ...buildEntry({ ...input, currency }, existing), id })
 }
 
 export async function deleteEntry(id: number, database: TimeTrackingDB = db): Promise<void> {

@@ -26,6 +26,10 @@ export interface Client extends Synced {
   id?: number
   /** Short name used in the app. */
   name: string
+  /** Set when the client came from a platform; its hours and money are imported, not typed. */
+  platform?: 'upwork'
+  /** Upwork client organisation id, the join key for imports. */
+  upworkClientId?: string
   /** Hourly rate for dates before the first rate period (and for clients without periods). */
   defaultRate: number
   /** Rate changes over time, sorted by `from`. Use rateFor() to resolve a date. */
@@ -50,9 +54,14 @@ export interface Project extends Synced {
   /** Legacy: rates are per client and period now; kept so old backups still load. */
   defaultRate?: number
   archived?: boolean
+  /** Set when the project is an Upwork contract. */
+  upwork?: { contractId: string; type: 'hourly' | 'fixed' }
 }
 
-export type EntrySource = 'manual' | 'timer' | 'import'
+export type EntrySource = 'manual' | 'timer' | 'import' | 'upwork'
+
+/** Whether fee and exchange rate of an entry come from real platform rows or are still estimates. */
+export type Settlement = 'actual' | 'estimated'
 
 export interface TimeEntry extends Synced {
   id?: number
@@ -89,11 +98,62 @@ export interface TimeEntry extends Synced {
   source: EntrySource
   /** Stable key used to avoid importing the same spreadsheet row twice. */
   importKey?: string
+  /**
+   * Money columns (see docs/plans/upwork-integration.md). `amount` is the gross in `currency`;
+   * the rest let every report sum in EUR. Direct clients: fee 0, net = gross, rate 1.
+   */
+  currency?: string
+  feeAmount?: number
+  netAmount?: number
+  fxRate?: number
+  netAmountEur?: number
+  settlement?: Settlement
+  /** The platform payout (UpworkTransaction.txId) that paid this entry. */
+  payoutId?: string
+  /** Platform row identity for idempotent imports, e.g. "upwork:<contractId>:<date>". */
+  externalId?: string
+  /** True when the platform reports a duration only; startTime/endTime are then a convention. */
+  timeless?: boolean
+  /** Fixed-price work whose hours were estimated by the user. */
+  estimatedHours?: boolean
   createdAt: string
   updatedAt: string
 }
 
-export type SyncTable = 'clients' | 'projects' | 'entries'
+export type UpworkTxType = 'hourly' | 'fixed' | 'bonus' | 'fee' | 'vat' | 'withdrawal' | 'withdrawalFee' | 'refund' | 'membership' | 'other'
+
+/** One row of the Upwork transaction history, stored raw; everything else is derived from these. */
+export interface UpworkTransaction extends Synced {
+  id?: number
+  /** Upwork recordId. */
+  txId: string
+  /** YYYY-MM-DD */
+  date: string
+  type: UpworkTxType
+  /** Upwork accountingSubtype as delivered. */
+  subtype: string
+  description: string
+  /** Signed amount in `currency` (USD): earnings positive, fees and withdrawals negative/positive as Upwork reports them. */
+  amount: number
+  currency: string
+  clientName?: string
+  /** Contract id when it can be read from the row (hourly invoices carry it; fees carry the term id). */
+  contractId?: string
+  termId?: string
+  /** Parsed from hourly invoice descriptions. */
+  periodFrom?: string
+  periodTo?: string
+  hours?: number
+  rate?: number
+  /** Parsed from fee descriptions: fee = feeBase × feePercent / 100. */
+  feeBase?: number
+  feePercent?: number
+  /** Withdrawals: what the bank received, typed in or imported from the bank statement. */
+  eurAmount?: number
+  eurDate?: string
+}
+
+export type SyncTable = 'clients' | 'projects' | 'entries' | 'upworkTransactions'
 
 /** A record deleted locally whose deletion still has to be pushed to the cloud. */
 export interface Tombstone {
@@ -133,6 +193,8 @@ export interface Settings {
   reportsIncludeNonBillable?: boolean
   /** E-mail preferences for documents sent from the app. */
   mail?: { signature?: string; copyToSender?: boolean }
+  /** Upwork: fee percent to estimate with until the real fee row arrives; sorted by `from`. */
+  upwork?: { feeSchedule?: { from: string; percent: number }[] }
   /** Legacy setting from before the billing rules; ignored. */
   timerRoundingMin?: number
   sync?: SyncState

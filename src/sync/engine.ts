@@ -9,7 +9,7 @@
  * ids never leave the device; relations are carried by the UUID `uid`.
  */
 import { db, getSettings, SYNC_TABLES, updateSettings, type TimeTrackingDB } from '../db/schema'
-import type { Client, Project, SyncTable, TimeEntry, RatePeriod } from '../db/types'
+import type { Client, Project, SyncTable, TimeEntry, RatePeriod, UpworkTransaction, UpworkTxType } from '../db/types'
 import type { Remote, RemoteRow } from './remote'
 
 export interface SyncResult {
@@ -39,6 +39,8 @@ function clientToRemote(c: Client) {
     vat_applicable: c.vatApplicable ?? null,
     address: c.address ?? null,
     notes: c.notes ?? null,
+    platform: c.platform ?? null,
+    upwork_client_id: c.upworkClientId ?? null,
     archived: Boolean(c.archived),
     updated_at: c.updatedAt ?? new Date().toISOString(),
     deleted_at: null,
@@ -50,6 +52,8 @@ function projectToRemote(p: Project, clientUid: string) {
     id: p.uid!,
     client_id: clientUid,
     name: p.name,
+    upwork_contract_id: p.upwork?.contractId ?? null,
+    upwork_type: p.upwork?.type ?? null,
     archived: Boolean(p.archived),
     updated_at: p.updatedAt ?? new Date().toISOString(),
     deleted_at: null,
@@ -78,6 +82,16 @@ function entryToRemote(e: TimeEntry, clientUid: string, projectUid: string | nul
     category: e.category ?? null,
     source: e.source,
     import_key: e.importKey ?? null,
+    currency: e.currency ?? null,
+    fee_amount: e.feeAmount ?? null,
+    net_amount: e.netAmount ?? null,
+    fx_rate: e.fxRate ?? null,
+    net_amount_eur: e.netAmountEur ?? null,
+    settlement: e.settlement ?? null,
+    payout_id: e.payoutId ?? null,
+    external_id: e.externalId ?? null,
+    timeless: e.timeless ?? null,
+    estimated_hours: e.estimatedHours ?? null,
     created_at: e.createdAt,
     updated_at: e.updatedAt,
     deleted_at: null,
@@ -100,6 +114,8 @@ function clientFromRemote(r: RemoteRow): Omit<Client, 'id'> {
     vatApplicable: r.vat_applicable == null ? undefined : Boolean(r.vat_applicable),
     address: str(r.address),
     notes: str(r.notes),
+    platform: r.platform === 'upwork' ? 'upwork' : undefined,
+    upworkClientId: str(r.upwork_client_id),
     archived: Boolean(r.archived),
     updatedAt: r.updated_at,
     dirty: 0,
@@ -122,6 +138,7 @@ function projectFromRemote(r: RemoteRow, clientId: number): Omit<Project, 'id'> 
     uid: r.id,
     clientId,
     name: String(r.name),
+    upwork: r.upwork_contract_id ? { contractId: String(r.upwork_contract_id), type: r.upwork_type === 'fixed' ? 'fixed' : 'hourly' } : undefined,
     archived: Boolean(r.archived),
     updatedAt: r.updated_at,
     dirty: 0,
@@ -150,10 +167,76 @@ function entryFromRemote(r: RemoteRow, clientId: number, projectId: number | und
     category: str(r.category),
     source: (str(r.source) as TimeEntry['source']) ?? 'manual',
     importKey: str(r.import_key),
+    currency: str(r.currency),
+    feeAmount: optNum(r.fee_amount),
+    netAmount: optNum(r.net_amount),
+    fxRate: optNum(r.fx_rate),
+    netAmountEur: optNum(r.net_amount_eur),
+    settlement: r.settlement === 'actual' || r.settlement === 'estimated' ? r.settlement : undefined,
+    payoutId: str(r.payout_id),
+    externalId: str(r.external_id),
+    timeless: r.timeless ? true : undefined,
+    estimatedHours: r.estimated_hours ? true : undefined,
     createdAt: String(r.created_at ?? r.updated_at),
     updatedAt: r.updated_at,
     dirty: 0,
   }
+}
+
+function upworkTxToRemote(t: UpworkTransaction) {
+  return {
+    id: t.uid!,
+    tx_id: t.txId,
+    date: t.date,
+    type: t.type,
+    subtype: t.subtype,
+    description: t.description,
+    amount: t.amount,
+    currency: t.currency,
+    client_name: t.clientName ?? null,
+    contract_id: t.contractId ?? null,
+    term_id: t.termId ?? null,
+    period_from: t.periodFrom ?? null,
+    period_to: t.periodTo ?? null,
+    hours: t.hours ?? null,
+    rate: t.rate ?? null,
+    fee_base: t.feeBase ?? null,
+    fee_percent: t.feePercent ?? null,
+    eur_amount: t.eurAmount ?? null,
+    eur_date: t.eurDate ?? null,
+    updated_at: t.updatedAt ?? new Date().toISOString(),
+    deleted_at: null,
+  }
+}
+
+function upworkTxFromRemote(r: RemoteRow): Omit<UpworkTransaction, 'id'> {
+  return {
+    uid: r.id,
+    txId: String(r.tx_id),
+    date: String(r.date),
+    type: String(r.type) as UpworkTxType,
+    subtype: String(r.subtype ?? ''),
+    description: String(r.description ?? ''),
+    amount: num(r.amount),
+    currency: String(r.currency ?? 'USD'),
+    clientName: str(r.client_name),
+    contractId: str(r.contract_id),
+    termId: str(r.term_id),
+    periodFrom: str(r.period_from),
+    periodTo: str(r.period_to),
+    hours: optNum(r.hours),
+    rate: optNum(r.rate),
+    feeBase: optNum(r.fee_base),
+    feePercent: optNum(r.fee_percent),
+    eurAmount: optNum(r.eur_amount),
+    eurDate: str(r.eur_date),
+    updatedAt: r.updated_at,
+    dirty: 0,
+  }
+}
+
+function optNum(v: unknown): number | undefined {
+  return v == null ? undefined : num(v)
 }
 
 // ---------------------------------------------------------------- engine
@@ -192,7 +275,7 @@ export class SyncEngine {
     const tombstones = await this.database.tombstones.toArray()
     if (!tombstones.length) return 0
     // Children first so the server never sees a dangling reference window.
-    for (const table of ['entries', 'projects', 'clients'] as SyncTable[]) {
+    for (const table of ['upworkTransactions', 'entries', 'projects', 'clients'] as SyncTable[]) {
       const ids = tombstones.filter((t) => t.table === table).map((t) => t.uid)
       if (ids.length) await this.remote.markDeleted(table, ids)
     }
@@ -228,6 +311,12 @@ export class SyncEngine {
       await this.clearDirty('entries', entries.map((e) => e.id!))
       pushed += entries.length
     }
+    const txs = await d.upworkTransactions.where('dirty').equals(1).toArray()
+    if (txs.length) {
+      await this.remote.upsert('upworkTransactions', txs.map(upworkTxToRemote))
+      await this.clearDirty('upworkTransactions', txs.map((t) => t.id!))
+      pushed += txs.length
+    }
     return pushed
   }
 
@@ -262,7 +351,7 @@ export class SyncEngine {
       const deletedLocally = new Set((await d.tombstones.where('table').equals(table).toArray()).map((t) => t.uid))
       for (const row of rows) {
         if (deletedLocally.has(row.id)) continue
-        const existing = (await d.table(table).where('uid').equals(row.id).first()) as (Client | Project | TimeEntry) | undefined
+        const existing = (await d.table(table).where('uid').equals(row.id).first()) as (Client | Project | TimeEntry | UpworkTransaction) | undefined
         if (row.deleted_at) {
           if (existing) {
             await d.table(table).delete(existing.id!)
@@ -273,9 +362,11 @@ export class SyncEngine {
         // Local unsynced edit that is newer than the server copy wins; it will be pushed next time.
         if (existing?.dirty === 1 && (existing.updatedAt ?? '') > row.updated_at) continue
 
-        let mapped: Omit<Client, 'id'> | Omit<Project, 'id'> | Omit<TimeEntry, 'id'>
+        let mapped: Omit<Client, 'id'> | Omit<Project, 'id'> | Omit<TimeEntry, 'id'> | Omit<UpworkTransaction, 'id'>
         if (table === 'clients') {
           mapped = clientFromRemote(row)
+        } else if (table === 'upworkTransactions') {
+          mapped = upworkTxFromRemote(row)
         } else if (table === 'projects') {
           const clientId = clientIdByUid.get(String(row.client_id))
           if (clientId == null) continue

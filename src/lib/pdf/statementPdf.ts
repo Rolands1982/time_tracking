@@ -3,7 +3,7 @@
  * Latvian and other Latin Extended characters render).
  */
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces'
-import { describe, FILTER_LABELS, hours, invoiceText, type Statement, type StatementColumn, type StatementRow } from '../statement'
+import { describe, FILTER_LABELS, hours, invoiceText, timeText, type Statement, type StatementColumn, type StatementRow } from '../statement'
 import { formatDate } from '../period'
 
 const GREY = '#6b7280'
@@ -23,7 +23,7 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
   type Spec = { header: string; width: string | number; align?: 'right'; cell: (r: StatementRow) => string }
   const specs: Record<StatementColumn, Spec> = {
     date: { header: 'Date', width: 52, cell: (r) => formatDate(r.date) },
-    time: { header: 'Time', width: 58, cell: (r) => `${r.startTime}–${r.endTime}` },
+    time: { header: 'Time', width: 58, cell: (r) => timeText(r) },
     project: { header: 'Project', width: 'auto', cell: (r) => r.project },
     category: { header: 'Category', width: 'auto', cell: (r) => r.category ?? '' },
     description: { header: 'Description', width: '*', cell: (r) => describe(r, st.columns) },

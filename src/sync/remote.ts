@@ -85,6 +85,11 @@ export function resetSupabaseClient(): void {
 }
 
 const PAGE = 1000
+
+/** Cloud table name for a local sync table. */
+export function remoteTable(table: SyncTable): string {
+  return table === 'upworkTransactions' ? 'upwork_transactions' : table
+}
 /** UUIDs per delete request: 100 ids are about 4 KB of URL. */
 const DELETE_BATCH = 100
 
@@ -97,7 +102,7 @@ export class SupabaseRemote implements Remote {
 
   async upsert(table: SyncTable, rows: Record<string, unknown>[]): Promise<void> {
     for (let i = 0; i < rows.length; i += 500) {
-      const { error } = await this.client.from(table).upsert(rows.slice(i, i + 500), { onConflict: 'id' })
+      const { error } = await this.client.from(remoteTable(table)).upsert(rows.slice(i, i + 500), { onConflict: 'id' })
       if (error) throw new Error(`${table}: ${error.message}`)
     }
   }
@@ -107,7 +112,7 @@ export class SupabaseRemote implements Remote {
     // The ids travel in the URL (`id=in.(…)`), so a restore that tombstones thousands of rows
     // must be split into requests that stay well under the URL length limit.
     for (let i = 0; i < ids.length; i += DELETE_BATCH) {
-      const { error } = await this.client.from(table).update({ deleted_at: now, updated_at: now }).in('id', ids.slice(i, i + DELETE_BATCH))
+      const { error } = await this.client.from(remoteTable(table)).update({ deleted_at: now, updated_at: now }).in('id', ids.slice(i, i + DELETE_BATCH))
       if (error) throw new Error(`${table}: ${error.message}`)
     }
   }
@@ -116,7 +121,7 @@ export class SupabaseRemote implements Remote {
     const all: RemoteRow[] = []
     let from = cursor
     for (;;) {
-      let q = this.client.from(table).select('*').order('synced_at', { ascending: true }).order('id').limit(PAGE)
+      let q = this.client.from(remoteTable(table)).select('*').order('synced_at', { ascending: true }).order('id').limit(PAGE)
       if (from) q = q.gt('synced_at', from)
       const { data, error } = await q
       if (error) throw new Error(`${table}: ${error.message}`)

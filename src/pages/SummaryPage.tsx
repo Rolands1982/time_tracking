@@ -20,6 +20,7 @@ import {
   normalizeColumns,
   STATEMENT_COLUMNS,
   statementFileName,
+  timeText,
   type Statement,
   type StatementColumn,
   type StatementFilter,
@@ -35,7 +36,7 @@ function previewCell(r: Statement['rows'][number], c: StatementColumn, st: State
     case 'date':
       return formatDate(r.date)
     case 'time':
-      return `${r.startTime}–${r.endTime}`
+      return timeText(r) || '–'
     case 'project':
       return r.project
     case 'category':
