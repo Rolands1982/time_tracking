@@ -159,6 +159,13 @@ export function useSyncController() {
     }
   }, [user, online, run])
 
+  /** Forget the pull cursors and sync: every cloud row is applied again (local unsynced edits still win). */
+  const pullAll = useCallback(async () => {
+    const settings = await getSettings()
+    await updateSettings({ sync: { ...settings.sync, cursors: {} } })
+    return run()
+  }, [run])
+
   const signIn = useCallback(async (email: string, password: string) => {
     const supabase = await getSupabase()
     if (!supabase) throw new Error('Cloud sync is not configured')
@@ -199,7 +206,7 @@ export function useSyncController() {
     lastSyncAt: settings.sync?.lastSyncAt,
     lastError: settings.sync?.lastError,
   }
-  return { ...status, syncNow: run, signIn, signUp, signOut, configure }
+  return { ...status, syncNow: run, pullAll, signIn, signUp, signOut, configure }
 }
 
 export type SyncApi = ReturnType<typeof useSyncController>
