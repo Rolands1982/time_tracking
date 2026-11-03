@@ -10,20 +10,37 @@ export const FX_API = 'https://api.frankfurter.dev/v1'
 
 export type RateFetcher = (from: string, to: string) => Promise<Record<string, number>>
 
-/** Fetch USD→EUR fixings for a date range (inclusive). Returns { 'YYYY-MM-DD': eurPerUsd } for trading days. */
-export async function fetchUsdEurRates(from: string, to: string, fetchFn: typeof fetch = fetch, timeoutMs = 10_000): Promise<Record<string, number>> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  let res: Response
-  try {
-    res = await fetchFn(`${FX_API}/${from}..${to}?base=USD&symbols=EUR`, { signal: controller.signal })
-  } finally {
-    clearTimeout(timer)
+/** Browsers refuse `fetch` called without `window` as `this`, so the default always goes through globalThis. */
+const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init)
+
+/** Split a range into spans of at most a year, so one request never grows unbounded. */
+export function yearSpans(from: string, to: string): [string, string][] {
+  const spans: [string, string][] = []
+  let start = from
+  while (start <= to) {
+    const end = addDays(start, 365) < to ? addDays(start, 365) : to
+    spans.push([start, end])
+    start = addDays(end, 1)
   }
-  if (!res.ok) throw new Error(`Exchange rates: HTTP ${res.status}`)
-  const body = (await res.json()) as { rates?: Record<string, { EUR?: number }> }
+  return spans
+}
+
+/** Fetch USD→EUR fixings for a date range (inclusive). Returns { 'YYYY-MM-DD': eurPerUsd } for trading days. */
+export async function fetchUsdEurRates(from: string, to: string, fetchFn: typeof fetch = defaultFetch, timeoutMs = 20_000): Promise<Record<string, number>> {
   const out: Record<string, number> = {}
-  for (const [date, r] of Object.entries(body.rates ?? {})) if (typeof r.EUR === 'number') out[date] = r.EUR
+  for (const [start, end] of yearSpans(from, to)) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    let res: Response
+    try {
+      res = await fetchFn(`${FX_API}/${start}..${end}?base=USD&symbols=EUR`, { signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
+    if (!res.ok) throw new Error(`Exchange rates: HTTP ${res.status}`)
+    const body = (await res.json()) as { rates?: Record<string, { EUR?: number }> }
+    for (const [date, r] of Object.entries(body.rates ?? {})) if (typeof r.EUR === 'number') out[date] = r.EUR
+  }
   return out
 }
 

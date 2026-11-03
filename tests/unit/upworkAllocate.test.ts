@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB, updateSettings } from '../../src/db/schema'
 import type { TimeEntry, UpworkTransaction } from '../../src/db/types'
-import { fillGaps, ensureFxRates } from '../../src/lib/fx'
+import { fetchUsdEurRates, fillGaps, ensureFxRates, yearSpans } from '../../src/lib/fx'
 import { allocatePayouts, linkFees, payoutsOf, rateEstimator, recalculateUpwork, setPayoutEur, settle, settleEntry } from '../../src/lib/upwork/allocate'
 import { importUpwork, parseTransaction, type UpworkImportFile } from '../../src/lib/upwork/import'
 
@@ -243,6 +243,27 @@ describe('ECB rates', () => {
       '2026-10-06': 0.91,
       '2026-10-07': 0.91,
     })
+  })
+
+  it('asks the API one year at a time and merges the answers', async () => {
+    expect(yearSpans('2024-01-01', '2024-03-01')).toEqual([['2024-01-01', '2024-03-01']])
+    expect(yearSpans('2016-11-24', '2018-01-10')).toEqual([
+      ['2016-11-24', '2017-11-24'],
+      ['2017-11-25', '2018-01-10'],
+    ])
+    const urls: string[] = []
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      urls.push(String(input))
+      const m = /\/(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})\?/.exec(String(input))!
+      return new Response(JSON.stringify({ rates: { [m[1]]: { EUR: 0.9 }, [m[2]]: { EUR: 0.91 } } }), { status: 200 })
+    }) as typeof fetch
+    const rates = await fetchUsdEurRates('2016-11-24', '2018-01-10', fetchFn)
+    expect(urls).toEqual([
+      'https://api.frankfurter.dev/v1/2016-11-24..2017-11-24?base=USD&symbols=EUR',
+      'https://api.frankfurter.dev/v1/2017-11-25..2018-01-10?base=USD&symbols=EUR',
+    ])
+    expect(rates).toEqual({ '2016-11-24': 0.9, '2017-11-24': 0.91, '2017-11-25': 0.9, '2018-01-10': 0.91 })
+    await expect(fetchUsdEurRates('2024-01-01', '2024-01-02', (async () => new Response('', { status: 503 })) as typeof fetch)).rejects.toThrow('HTTP 503')
   })
 
   it('caches only the missing days and survives a failed fetch', async () => {
