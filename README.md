@@ -34,8 +34,10 @@ and it behaves like a native app, including offline.
   Re-importing a file never duplicates rows.
 - **Upwork**: Data → Upwork loads a pull from Upwork's MCP server (contracts, daily time, the transaction
   ledger) as clients, projects, timeless entries in USD (one per contract, day and memo) and raw transactions;
-  rows are matched by contract, date and memo so a pull can be loaded again. Fees and exchange rates start as estimates (see
-  `docs/plans/upwork-integration.md` for the allocation that follows).
+  rows are matched by contract, date and memo so a pull can be loaded again. Fees come from Upwork's fee rows;
+  each payout pays the oldest earnings first, and typing the EUR the bank received (Data → Upwork → Payouts)
+  gives every entry its real exchange rate. Until then entries use the ECB rate of the day and are marked as
+  estimates. Reports switch between gross, net after fees and net in EUR.
 - **Master file export**: one `.xlsx` with every entry and summary sheets (by month, client, client & project,
   invoice, clients).
 - **Backup / restore** as JSON. Data is stored on the device (IndexedDB) and works offline.

@@ -8,6 +8,7 @@ import { groupBy, isBillable, setBilled, totals } from '../db/repo'
 import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
+import { amountOf, MONEY_MODES, type MoneyMode } from '../lib/moneyMode'
 import { periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../lib/time'
 
@@ -15,6 +16,7 @@ export default function ReportsPage() {
   const [period, setPeriod] = useState<PeriodState>(() => ({ period: 'month', anchor: todayIso().slice(0, 7), custom: { from: '', to: '' } }))
   const [clientId, setClientId] = useState<number | undefined>()
   const [invoiceDate, setInvoiceDate] = useState(todayIso())
+  const [money, setMoney] = useState<MoneyMode>('gross')
   const { clients, projects, clientName, projectName, clientById } = useLookups()
   const settings = useSettings()
   const toast = useToast()
@@ -40,7 +42,8 @@ export default function ReportsPage() {
     [entries, clientId, includeNonBillable],
   )
   const t = useMemo(() => totals(filtered), [filtered])
-  const currency = (clientId != null && clientById.get(clientId)?.currency) || settings.defaultCurrency
+  const baseCurrency = (clientId != null && clientById.get(clientId)?.currency) || settings.defaultCurrency
+  const currency = money === 'eur' ? 'EUR' : baseCurrency
 
   const byClient = useMemo(() => groupBy(filtered, (e) => e.clientId), [filtered])
   const byProject = useMemo(() => groupBy(filtered, (e) => `${e.clientId}:${e.projectId ?? ''}`), [filtered])
@@ -91,6 +94,13 @@ export default function ReportsPage() {
           <input type="checkbox" checked={includeNonBillable} onChange={(e) => setIncludeNonBillable(e.target.checked)} data-testid="include-non-billable" />
           Include non-billable hours
         </label>
+        <div className="segmented" role="radiogroup" aria-label="Money">
+          {MONEY_MODES.map((m) => (
+            <button key={m.key} className={money === m.key ? 'active' : ''} onClick={() => setMoney(m.key)} role="radio" aria-checked={money === m.key}>
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div className="stat-grid">
           <div className="stat">
             <div className="label">{includeNonBillable ? 'Hours' : 'Billed hours'}</div>
@@ -101,12 +111,17 @@ export default function ReportsPage() {
             {t.billedMin !== t.durationMin && <div className="label">actual {(t.durationMin / 60).toFixed(2)}</div>}
           </div>
           <div className="stat">
-            <div className="label">Amount</div>
-            <div className="value">{formatMoney(t.amount, currency)}</div>
+            <div className="label">{money === 'gross' ? 'Amount' : money === 'net' ? 'Net after fees' : 'Net in EUR'}</div>
+            <div className="value" data-testid="report-amount">
+              {formatMoney(amountOf(t, money), currency)}
+            </div>
+            {money !== 'gross' && t.feeAmount > 0 && <div className="label">fees {formatMoney(t.feeAmount, baseCurrency)}</div>}
+            {money === 'eur' && t.eurMissing > 0 && <div className="label">{t.eurMissing} entries without a rate</div>}
           </div>
           <div className="stat">
             <div className="label">Not billed</div>
-            <div className="value">{formatMoney(t.unbilledAmount, currency)}</div>
+            <div className="value">{formatMoney(t.unbilledAmount, baseCurrency)}</div>
+            {t.estimated > 0 && <div className="label">{t.estimated} estimated</div>}
           </div>
         </div>
         <Link className="btn block" to={{ pathname: '/summary', search: new URLSearchParams({ ...periodToParams(period), ...(clientId != null ? { client: String(clientId) } : {}) }).toString() }}>
@@ -157,7 +172,7 @@ export default function ReportsPage() {
         )}
       </div>
 
-      <SummaryTable title="By client" rows={[...byClient.entries()].map(([k, list]) => [clientName(k), list] as const)} currency={currency} />
+      <SummaryTable title="By client" rows={[...byClient.entries()].map(([k, list]) => [clientName(k), list] as const)} currency={currency} openCurrency={baseCurrency} money={money} />
       <SummaryTable
         title="By project"
         rows={[...byProject.entries()].map(([k, list]) => {
@@ -165,21 +180,31 @@ export default function ReportsPage() {
           return [`${clientName(Number(c))}${p ? ` · ${projectName(Number(p))}` : ''}`, list] as const
         })}
         currency={currency}
+        openCurrency={baseCurrency}
+        money={money}
       />
       <SummaryTable
         title="By month"
         rows={[...byMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, list]) => [monthLabel(k), list] as const)}
         currency={currency}
+        openCurrency={baseCurrency}
+        money={money}
       />
       <p className="muted small">
         Hours and amounts are on the billed basis (start snapped to 10 minutes, 15-minute steps); actual minutes are shown
-        where they differ. Non-billable work {includeNonBillable ? 'is counted in the hours but never in the amounts' : 'is left out'}. Totals per client use that client's currency; the overall figures use {currency}.
+        where they differ. Non-billable work {includeNonBillable ? 'is counted in the hours but never in the amounts' : 'is left out'}.{' '}
+        {money === 'gross'
+          ? `Totals per client use that client's currency; the overall figures use ${currency}.`
+          : money === 'net'
+            ? `Net = gross minus platform fees (Upwork); direct work has no fee. Figures in ${currency}.`
+            : 'Net in EUR uses the exchange rate of the payout that paid each entry; entries not paid out yet use the ECB rate of the day.'}
+        {t.estimated > 0 && ` ${t.estimated} entries still carry estimated fees or rates.`}
       </p>
     </>
   )
 }
 
-function SummaryTable({ title, rows, currency }: { title: string; rows: readonly (readonly [string, TimeEntry[]])[]; currency: string }) {
+function SummaryTable({ title, rows, currency, openCurrency, money }: { title: string; rows: readonly (readonly [string, TimeEntry[]])[]; currency: string; openCurrency: string; money: MoneyMode }) {
   if (!rows.length) return null
   const all = totals(rows.flatMap(([, l]) => l))
   return (
@@ -202,16 +227,16 @@ function SummaryTable({ title, rows, currency }: { title: string; rows: readonly
                 <tr key={label}>
                   <td>{label}</td>
                   <td className="num">{formatDuration(t.billedMin)}</td>
-                  <td className="num">{formatMoney(t.amount, currency)}</td>
-                  <td className="num">{t.unbilledAmount ? formatMoney(t.unbilledAmount, currency) : '–'}</td>
+                  <td className="num">{formatMoney(amountOf(t, money), currency)}</td>
+                  <td className="num">{t.unbilledAmount ? formatMoney(t.unbilledAmount, openCurrency) : '–'}</td>
                 </tr>
               )
             })}
             <tr className="total">
               <td>Total</td>
               <td className="num">{formatDuration(all.billedMin)}</td>
-              <td className="num">{formatMoney(all.amount, currency)}</td>
-              <td className="num">{all.unbilledAmount ? formatMoney(all.unbilledAmount, currency) : '–'}</td>
+              <td className="num">{formatMoney(amountOf(all, money), currency)}</td>
+              <td className="num">{all.unbilledAmount ? formatMoney(all.unbilledAmount, openCurrency) : '–'}</td>
             </tr>
           </tbody>
         </table>

@@ -195,8 +195,8 @@ export interface Settings {
   reportsIncludeNonBillable?: boolean
   /** E-mail preferences for documents sent from the app. */
   mail?: { signature?: string; copyToSender?: boolean }
-  /** Upwork: fee percent to estimate with until the real fee row arrives; sorted by `from`. */
-  upwork?: { feeSchedule?: { from: string; percent: number }[] }
+  /** Upwork: fee percent to estimate with until the real fee row arrives (sorted by `from`), and cached ECB USD→EUR rates per day. */
+  upwork?: { feeSchedule?: { from: string; percent: number }[]; fxRates?: Record<string, number> }
   /** Legacy setting from before the billing rules; ignored. */
   timerRoundingMin?: number
   sync?: SyncState
