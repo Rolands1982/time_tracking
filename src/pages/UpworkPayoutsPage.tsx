@@ -28,6 +28,7 @@ export default function UpworkPayoutsPage() {
   }, [txs])
   const withEur = payouts.filter((p) => p.eurAmount != null)
   const estimated = entries.filter((e) => e.settlement === 'estimated' && e.amount > 0).length
+  const noRate = entries.filter((e) => e.amount > 0 && e.fxRate == null).length
 
   /** Settle from the ledger at once; the ECB rates for whatever stays estimated are fetched afterwards. */
   const recalc = async (why: string) => {
@@ -50,7 +51,11 @@ export default function UpworkPayoutsPage() {
     setBusy(true)
     try {
       const r = await recalculateWithRates()
-      toast(`Recalculated: ${r.updated} entries updated, ${r.estimated} still estimated${r.rateError ? ` (ECB rates: ${r.rateError})` : ''}`)
+      toast(
+        r.rateError
+          ? `Recalculated: ${r.updated} entries updated. ECB rates could not be fetched: ${r.rateError}`
+          : `Recalculated: ${r.ratesFetched} ECB rates fetched, ${r.updated} entries updated, ${r.estimated} still estimated (not paid out yet)`,
+      )
     } finally {
       setBusy(false)
     }
@@ -97,7 +102,7 @@ export default function UpworkPayoutsPage() {
           <div className="stat">
             <div className="label">Entries estimated</div>
             <div className="value">{estimated}</div>
-            <div className="label">of {entries.filter((e) => e.amount > 0).length}</div>
+            <div className="label">{noRate > 0 ? `${noRate} without any rate` : `of ${entries.filter((e) => e.amount > 0).length}`}</div>
           </div>
         </div>
         <p className="muted small">
