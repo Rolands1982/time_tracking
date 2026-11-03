@@ -104,6 +104,20 @@ export default function CloudSyncCard() {
                 Sign in
               </button>
             </div>
+            <button
+              type="button"
+              className="btn ghost small"
+              disabled={busy || sync.syncing || !sync.online}
+              data-testid="pull-all"
+              onClick={() =>
+                guard(async () => {
+                  const r = await sync.pullAll()
+                  toast(r ? `Pulled everything again: ${r.pulled} rows applied` : 'Nothing to sync')
+                })
+              }
+            >
+              Pull everything again
+            </button>
             {!sync.builtIn && (
               <button type="button" className="btn ghost small" onClick={() => setEditingConfig(true)}>
                 Change project settings
@@ -149,6 +163,20 @@ export default function CloudSyncCard() {
                 Sync now
               </button>
             </div>
+            <button
+              type="button"
+              className="btn ghost small"
+              disabled={busy || sync.syncing || !sync.online}
+              data-testid="pull-all"
+              onClick={() =>
+                guard(async () => {
+                  const r = await sync.pullAll()
+                  toast(r ? `Pulled everything again: ${r.pulled} rows applied` : 'Nothing to sync')
+                })
+              }
+            >
+              Pull everything again
+            </button>
             {!sync.builtIn && (
               <button type="button" className="btn ghost small" onClick={() => setEditingConfig(true)}>
                 Change project settings

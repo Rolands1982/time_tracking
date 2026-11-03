@@ -117,19 +117,36 @@ export class SupabaseRemote implements Remote {
     }
   }
 
+  /**
+   * Rows changed after `cursor`, oldest first. Every row written by one request shares one synced_at
+   * (the trigger stamps the statement time), so a page may end inside such a group; the rest of that
+   * group is fetched explicitly before the cursor moves past it, otherwise those rows would never
+   * reach the device.
+   */
   async pullSince(table: SyncTable, cursor: string | undefined): Promise<RemoteRow[]> {
-    const all: RemoteRow[] = []
+    const byId = new Map<string, RemoteRow>()
+    const name = remoteTable(table)
     let from = cursor
     for (;;) {
-      let q = this.client.from(remoteTable(table)).select('*').order('synced_at', { ascending: true }).order('id').limit(PAGE)
+      let q = this.client.from(name).select('*').order('synced_at', { ascending: true }).order('id').limit(PAGE)
       if (from) q = q.gt('synced_at', from)
       const { data, error } = await q
       if (error) throw new Error(`${table}: ${error.message}`)
       const rows = (data ?? []) as RemoteRow[]
-      all.push(...rows)
+      for (const r of rows) byId.set(r.id, r)
       if (rows.length < PAGE) break
-      from = rows[rows.length - 1].synced_at
+      const last = rows[rows.length - 1].synced_at
+      let afterId = rows[rows.length - 1].id
+      for (;;) {
+        const { data: tail, error: tailError } = await this.client.from(name).select('*').eq('synced_at', last).order('id').gt('id', afterId).limit(PAGE)
+        if (tailError) throw new Error(`${table}: ${tailError.message}`)
+        const more = (tail ?? []) as RemoteRow[]
+        for (const r of more) byId.set(r.id, r)
+        if (more.length < PAGE) break
+        afterId = more[more.length - 1].id
+      }
+      from = last
     }
-    return all
+    return [...byId.values()].sort((a, b) => a.synced_at.localeCompare(b.synced_at) || a.id.localeCompare(b.id))
   }
 }

@@ -276,7 +276,60 @@ describe('push and pull between two devices', () => {
   })
 })
 
+/** A stand-in for the PostgREST query builder: filters, orders and limits in memory. */
+function fakeTable(rows: RemoteRow[], log: string[]) {
+  const build = (state: { filters: ((r: RemoteRow) => boolean)[]; order: (keyof RemoteRow)[]; limit?: number }) => {
+    const q = {
+      select: () => q,
+      order: (col: keyof RemoteRow) => build({ ...state, order: [...state.order, col] }),
+      limit: (n: number) => build({ ...state, limit: n }),
+      gt: (col: keyof RemoteRow, v: string) => build({ ...state, filters: [...state.filters, (r) => String(r[col]) > v] }),
+      eq: (col: keyof RemoteRow, v: string) => build({ ...state, filters: [...state.filters, (r) => String(r[col]) === v] }),
+      then: (resolve: (v: { data: RemoteRow[]; error: null }) => void) => {
+        let out = rows.filter((r) => state.filters.every((f) => f(r)))
+        out = [...out].sort((a, b) => {
+          for (const col of state.order) {
+            const c = String(a[col]).localeCompare(String(b[col]))
+            if (c) return c
+          }
+          return 0
+        })
+        if (state.limit != null) out = out.slice(0, state.limit)
+        log.push(`${state.filters.length} filters, ${out.length} rows`)
+        resolve({ data: out, error: null })
+      },
+    }
+    return q
+  }
+  return { from: () => build({ filters: [], order: [] }) }
+}
+
 describe('Supabase remote', () => {
+  it('pulls every row of a timestamp group that straddles a page boundary', async () => {
+    // Three bulk writes stamped t1 (700 rows), t2 (500) and t3 (300): the first page of 1000 ends inside t2.
+    const rows: RemoteRow[] = []
+    const groups: [string, number][] = [
+      ['2030-01-01T00:00:01.000000+00:00', 700],
+      ['2030-01-01T00:00:02.000000+00:00', 500],
+      ['2030-01-01T00:00:03.000000+00:00', 300],
+    ]
+    let n = 0
+    for (const [synced_at, count] of groups) for (let i = 0; i < count; i++) rows.push({ id: `id-${String(n++).padStart(5, '0')}`, updated_at: synced_at, synced_at, deleted_at: null })
+    const log: string[] = []
+    const pulled = await new SupabaseRemote(fakeTable(rows, log) as never).pullSince('entries', undefined)
+    expect(pulled).toHaveLength(1500)
+    expect(new Set(pulled.map((r) => r.id)).size).toBe(1500)
+    expect(pulled[0].id).toBe('id-00000')
+    expect(pulled.at(-1)!.id).toBe('id-01499')
+    // Page 1 (1000), the rest of group t2 (200), page 2 after t2 (300).
+    expect(log).toEqual(['0 filters, 1000 rows', '2 filters, 200 rows', '1 filters, 300 rows'])
+
+    // Resuming from a cursor only returns newer groups.
+    const later = await new SupabaseRemote(fakeTable(rows, []) as never).pullSince('entries', groups[1][0])
+    expect(later).toHaveLength(300)
+  })
+
+
   it('marks deletions in batches so the request URL stays short', async () => {
     const batches: string[][] = []
     const fake = {
