@@ -376,21 +376,21 @@ export async function recalculateUpwork(database: TimeTrackingDB = db): Promise<
  * estimates use the rate of the day. Network failures leave the fallback rate in place and are reported.
  * Callers run recalculateUpwork() first and show its result; this part may take a while or fail quietly.
  */
-export async function refreshRatesAndRecalculate(database: TimeTrackingDB = db): Promise<{ ratesFetched: number; updated: number; rateError?: string }> {
+export async function refreshRatesAndRecalculate(database: TimeTrackingDB = db): Promise<{ ratesFetched: number; ratesCached: number; updated: number; rateError?: string }> {
   const estimated = await database.entries.where('source').equals('upwork').filter((e) => e.settlement === 'estimated' && e.amount > 0).toArray()
   const dates = [...new Set(estimated.map((e) => e.date))]
-  if (!dates.length) return { ratesFetched: 0, updated: 0 }
+  if (!dates.length) return { ratesFetched: 0, ratesCached: 0, updated: 0 }
   const rates = await ensureFxRates(dates, database)
   const updated = rates.fetched > 0 ? (await recalculateUpwork(database)).updated : 0
-  return { ratesFetched: rates.fetched, updated, rateError: rates.error }
+  return { ratesFetched: rates.fetched, ratesCached: rates.cached, updated, rateError: rates.error }
 }
 
 /** Recalculate now, then refresh the ECB rates and recalculate again. */
-export async function recalculateWithRates(database: TimeTrackingDB = db): Promise<RecalculationReport & { ratesFetched: number; rateError?: string }> {
+export async function recalculateWithRates(database: TimeTrackingDB = db): Promise<RecalculationReport & { ratesFetched: number; ratesCached: number; rateError?: string }> {
   const report = await recalculateUpwork(database)
   const rates = await refreshRatesAndRecalculate(database)
   const after = rates.updated ? await recalculateUpwork(database) : report
-  return { ...after, ratesFetched: rates.ratesFetched, rateError: rates.rateError }
+  return { ...after, ratesFetched: rates.ratesFetched, ratesCached: rates.ratesCached, rateError: rates.rateError }
 }
 
 /** Record what the bank received for a payout; the settlement is recalculated by the caller. */

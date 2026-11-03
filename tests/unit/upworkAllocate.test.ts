@@ -274,12 +274,13 @@ describe('ECB rates', () => {
       return { '2026-10-02': 0.9, '2026-10-06': 0.91 }
     }
     const r = await ensureFxRates(['2026-10-01', '2026-10-04', '2026-10-06'], db, fetcher)
-    expect(r).toEqual({ fetched: 2 })
+    expect(r).toEqual({ fetched: 2, cached: 1 })
     expect(calls).toEqual([['2026-09-27', '2026-10-06']])
     expect((await db.settings.get('app'))!.upwork!.fxRates).toEqual({ '2026-10-01': 0.88, '2026-10-04': 0.9, '2026-10-06': 0.91 })
     const failed = await ensureFxRates(['2026-11-01'], db, async () => {
       throw new Error('offline')
     })
-    expect(failed).toEqual({ fetched: 0, error: 'offline' })
+    expect(failed).toEqual({ fetched: 0, cached: 0, error: 'offline' })
+    expect(await ensureFxRates(['2026-10-04'], db, async () => ({}))).toEqual({ fetched: 0, cached: 1 })
   })
 })
