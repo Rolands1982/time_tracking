@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/toastContext'
+import { useSettings } from '../db/hooks'
 import { db } from '../db/schema'
 import type { TimeEntry, UpworkTransaction } from '../db/types'
 import { formatDate } from '../lib/period'
 import { formatMoney } from '../lib/time'
-import { allocatePayouts, linkFees, payoutsOf, recalculateUpwork, recalculateWithRates, refreshRatesAndRecalculate, setPayoutEur, type Payout } from '../lib/upwork/allocate'
+import { allocatePayouts, linkFees, payoutsOf, rateEstimator, recalculateUpwork, recalculateWithRates, refreshRatesAndRecalculate, setPayoutEur, type Payout } from '../lib/upwork/allocate'
+import { matchBankCredits, parseBankCredits, type BankMatchReport } from '../lib/upwork/bankCredits'
 
 /**
  * Upwork payouts: what Upwork withdrew to the bank, what the bank received in EUR (typed in from the bank
@@ -18,6 +20,9 @@ export default function UpworkPayoutsPage() {
   const entries = useLiveQuery(() => db.entries.where('source').equals('upwork').toArray(), [], [] as TimeEntry[])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [bank, setBank] = useState<{ name: string; report: BankMatchReport } | null>(null)
+  const [bankKey, setBankKey] = useState(0)
+  const settings = useSettings()
 
   const { payouts, unpaidNet } = useMemo(() => {
     const { earnings } = linkFees(txs)
@@ -45,6 +50,35 @@ export default function UpworkPayoutsPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  /** A bank export: match its credits to the payouts, show what would change, apply on request. */
+  const onBankFile = async (f: File | null) => {
+    setBank(null)
+    if (!f) return
+    try {
+      const credits = parseBankCredits(await f.text())
+      if (!credits.length) throw new Error('No credits found in the file')
+      const all = payoutsOf(txs)
+      const report = matchBankCredits(credits, all, rateEstimator(settings.upwork?.fxRates, all))
+      setBank({ name: f.name, report })
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const applyBank = async () => {
+    if (!bank) return
+    const fresh = bank.report.matches.filter((m) => !m.already)
+    setBusy(true)
+    try {
+      for (const m of fresh) await setPayoutEur(m.payout.tx.txId, m.credit.amount, m.credit.date)
+      setBank(null)
+      setBankKey((k) => k + 1)
+    } finally {
+      setBusy(false)
+    }
+    await recalc(`${fresh.length} payouts priced from ${bank.name}`)
   }
 
   const recalcWithRates = async () => {
@@ -116,6 +150,37 @@ export default function UpworkPayoutsPage() {
         <button className="btn" onClick={() => void recalcWithRates()} disabled={busy} data-testid="upwork-recalc">
           {busy ? 'Working…' : 'Fetch ECB rates and recalculate'}
         </button>
+      </div>
+
+      <h2>Bank credits</h2>
+      <div className="card stack">
+        <p className="muted small">
+          Load a bank statement (CSV) or an export of the Upwork credits from your finance app: columns Date and Amount (or Datums and Summa), plus
+          an optional description. Each credit is matched to the withdrawal it paid out: the bank books it one to four days after the Upwork date
+          and the implied rate must be a plausible EUR/USD rate.
+        </p>
+        <input key={bankKey} type="file" accept=".csv,.txt,text/csv" onChange={(e) => void onBankFile(e.target.files?.[0] ?? null)} aria-label="Bank credits file" />
+        {bank && (
+          <>
+            <p className="small">
+              <strong>{bank.name}</strong>: {bank.report.matches.length} credits matched ({bank.report.matches.filter((m) => m.already).length} already priced),{' '}
+              {bank.report.unmatched.length} without a payout.
+            </p>
+            {bank.report.unmatched.length > 0 && (
+              <ul className="small muted">
+                {bank.report.unmatched.map((u, i) => (
+                  <li key={i}>
+                    {formatDate(u.credit.date)} {formatMoney(u.credit.amount, 'EUR')}
+                    {u.nearest ? ` — nearest payout ${formatDate(u.nearest.tx.date)} ${formatMoney(u.nearest.usd, 'USD')} (rate ${u.rate?.toFixed(4)}); type it in below if it is the one` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button className="btn primary" onClick={() => void applyBank()} disabled={busy || bank.report.matches.every((m) => m.already)} data-testid="bank-apply">
+              Apply {bank.report.matches.filter((m) => !m.already).length} matches
+            </button>
+          </>
+        )}
       </div>
 
       <div className="card">
