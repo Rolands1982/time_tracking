@@ -51,10 +51,13 @@ export default function UpworkPayoutsPage() {
     setBusy(true)
     try {
       const r = await recalculateWithRates()
+      const days = r.ratesFetched + r.ratesCached
       toast(
         r.rateError
           ? `Recalculated: ${r.updated} entries updated. ECB rates could not be fetched: ${r.rateError}`
-          : `Recalculated: ${r.ratesFetched} ECB rates fetched, ${r.updated} entries updated, ${r.estimated} still estimated (not paid out yet)`,
+          : r.ratesFetched > 0
+            ? `Recalculated: ${r.ratesFetched} new ECB rates (${days} days covered), ${r.updated} entries updated`
+            : `Recalculated: ECB rates already known for all ${days} days, ${r.updated} entries updated`,
       )
     } finally {
       setBusy(false)
@@ -100,15 +103,15 @@ export default function UpworkPayoutsPage() {
             <div className="label">net, per the ledger</div>
           </div>
           <div className="stat">
-            <div className="label">Entries estimated</div>
+            <div className="label">Waiting for a payout</div>
             <div className="value">{estimated}</div>
-            <div className="label">{noRate > 0 ? `${noRate} without any rate` : `of ${entries.filter((e) => e.amount > 0).length}`}</div>
+            <div className="label">{noRate > 0 ? `${noRate} without any rate` : 'all with an ECB rate'}</div>
           </div>
         </div>
         <p className="muted small">
           Type what your bank received for each payout (from the bank statement) and leave the field to save. Every payout pays the oldest earnings
-          first, so each entry gets the exchange rate of the payout that covered it. Entries not paid out yet use the ECB rate of the day and stay
-          marked as estimates.
+          first, so each entry gets the exchange rate of the payout that covered it. Until a payout with its EUR amount covers an entry, the entry
+          uses the ECB rate of its day and counts as an estimate.
         </p>
         <button className="btn" onClick={() => void recalcWithRates()} disabled={busy} data-testid="upwork-recalc">
           {busy ? 'Working…' : 'Fetch ECB rates and recalculate'}

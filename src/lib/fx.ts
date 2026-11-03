@@ -57,11 +57,12 @@ export function fillGaps(rates: Record<string, number>, from: string, to: string
 }
 
 /** Make sure the cache holds a rate for each of `dates`; fetches the missing span once. Errors are returned, not thrown. */
-export async function ensureFxRates(dates: string[], database: TimeTrackingDB = db, fetcher: RateFetcher = fetchUsdEurRates): Promise<{ fetched: number; error?: string }> {
+export async function ensureFxRates(dates: string[], database: TimeTrackingDB = db, fetcher: RateFetcher = fetchUsdEurRates): Promise<{ fetched: number; cached: number; error?: string }> {
   const settings = await getSettings(database)
   const cache = settings.upwork?.fxRates ?? {}
   const missing = dates.filter((d) => cache[d] == null).sort()
-  if (!missing.length) return { fetched: 0 }
+  const cached = dates.length - missing.length
+  if (!missing.length) return { fetched: 0, cached }
   const from = missing[0]
   const to = missing.at(-1)!
   try {
@@ -77,8 +78,8 @@ export async function ensureFxRates(dates: string[], database: TimeTrackingDB = 
       }
     }
     if (n) await updateSettings({ upwork: { ...settings.upwork, fxRates: next } }, database)
-    return { fetched: n }
+    return { fetched: n, cached }
   } catch (err) {
-    return { fetched: 0, error: err instanceof Error ? err.message : String(err) }
+    return { fetched: 0, cached, error: err instanceof Error ? err.message : String(err) }
   }
 }
