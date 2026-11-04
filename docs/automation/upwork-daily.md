@@ -47,11 +47,27 @@ Daily Upwork ingest for the time tracking app (repository Rolands1982/time_track
    say which and quote the error. Do not commit, push or change the repository; do not retry more than once.
 ```
 
-Bank credits reach the cloud separately (see `docs/plans/upwork-integration.md`, stage 4); until then, the
-`--bank credits.csv` option prices payouts from a statement export.
+## Bank credits
+
+The personal finances app (repository `Rolands1982/personal-finances`) forwards every EUR credit from Upwork to
+the cloud table `bank_credits` on each bank sync (`backend/upwork_credits.py`; the table is in
+`supabase/schema.sql`). The ingest script reads the table after signing in and matches the credits to payouts
+exactly as the Payouts screen does with a CSV, so a payout gets its EUR amount the day after the bank books it.
+Nothing on the phone or laptop changes: the priced payouts arrive through sync.
+
+Setup on the PC that runs the personal finances app: a file `time_tracking_supabase.json` next to the Enable
+Banking credentials (`C:\Users\Rolands\secrets\enablebanking`, never in a repository) with `url`, `anon_key`
+(the publishable key from this repository's `.env`), `email` and `password` (the app login). Without the file the
+finance app sends nothing. A one-off backfill from the bank files it already holds:
+`python -m backend.upwork_credits --from-files`; after a reconnect, a sync with a longer look-back forwards the
+weeks the bank missed.
+
+`--no-cloud-credits` skips the table; `--bank credits.csv` adds a statement export to whatever the table holds.
+A line `cloud credits: …` with an error (for example the table not created yet) is a warning: the run continues.
 
 ## Checking on it
 
 - Data → Upwork card: the date range and "N estimated" move forward daily; Payouts: "payouts without EUR".
-- The task's run history in the scheduled tasks list shows the one-line summary or the error.
+- The task's run history in the scheduled tasks list shows the one-line summary or the error. `cloud credits N`
+  is how many credits the finance app has forwarded so far; `bank credits N matched` how many priced a payout today.
 - Consent and rate limits: the Upwork connector is OAuth-authorised once; the daily pull is about ten calls.

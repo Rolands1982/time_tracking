@@ -115,3 +115,5 @@ Conventions that matter:
   `supabase/schema.sql`. Edge Functions are deployed manually too (dashboard editor or CLI); note it in the PR.
 - A daily scheduled Claude task pulls Upwork through the connector and runs `scripts/upwork-ingest.ts` with the
   owner's Supabase login from environment secrets (`docs/automation/upwork-daily.md`). Never print or commit them.
+  Bank credits for pricing payouts arrive in the cloud table `bank_credits` from the personal finances app; the
+  script reads them, devices never sync that table.

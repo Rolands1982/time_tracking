@@ -172,6 +172,34 @@ drop policy if exists "own upwork transactions" on public.upwork_transactions;
 create policy "own upwork transactions" on public.upwork_transactions for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- ------------------------------------------------------------------ bank credits
+-- EUR the bank received from Upwork, forwarded by the personal finances app on every bank sync
+-- (docs/automation/upwork-daily.md). Devices never sync this table: the daily ingest reads it to give
+-- payouts their EUR amount. reference = the bank's entry reference, so a credit sent twice is one row.
+create table if not exists public.bank_credits (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  booked        date not null,
+  amount        numeric(12, 2) not null,
+  currency      text not null default 'EUR',
+  party         text,
+  description   text,
+  reference     text not null,
+  account       text,
+  source        text not null default 'personal-finances',
+  created_at    timestamptz not null default now(),
+  synced_at     timestamptz not null default now(),
+  unique (user_id, reference)
+);
+create index if not exists bank_credits_user_booked on public.bank_credits (user_id, booked);
+drop trigger if exists bank_credits_synced_at on public.bank_credits;
+create trigger bank_credits_synced_at before insert or update on public.bank_credits
+  for each row execute function public.set_synced_at();
+alter table public.bank_credits enable row level security;
+drop policy if exists "own bank credits" on public.bank_credits;
+create policy "own bank credits" on public.bank_credits for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 -- ------------------------------------------------------------------ reporting view (Power BI, SQL)
 -- The view is dropped first: "create or replace" cannot insert or reorder columns, and this view grew in
 -- the middle. Nothing depends on it (reporting only), so recreating it is free.
