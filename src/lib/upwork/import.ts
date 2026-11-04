@@ -213,8 +213,11 @@ export function feePercentFor(date: string, schedule?: { from: string; percent: 
 export interface UpworkImportReport {
   clients: { created: number; matched: number }
   projects: { created: number; matched: number }
-  /** removed: entries for a contract and day the file covers that Upwork no longer reports (memo edited, time deleted). */
-  entries: { added: number; updated: number; unchanged: number; removed: number }
+  /**
+   * removed: entries for a contract and day the file covers that Upwork no longer reports (memo edited, time
+   * deleted); rekeyed: entries that had lost their externalId and were matched by project, day, memo and duration.
+   */
+  entries: { added: number; updated: number; unchanged: number; removed: number; rekeyed: number }
   transactions: { added: number; updated: number; unchanged: number }
   warnings: string[]
 }
@@ -230,7 +233,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
   const report: UpworkImportReport = {
     clients: { created: 0, matched: 0 },
     projects: { created: 0, matched: 0 },
-    entries: { added: 0, updated: 0, unchanged: 0, removed: 0 },
+    entries: { added: 0, updated: 0, unchanged: 0, removed: 0, rekeyed: 0 },
     transactions: { added: 0, updated: 0, unchanged: 0 },
     warnings: [],
   }
@@ -297,7 +300,16 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
 
     // Time rows → entries, one per contract, day and memo.
     const existingByExternal = new Map<string, TimeEntry>()
-    for (const e of await database.entries.where('source').equals('upwork').toArray()) if (e.externalId) existingByExternal.set(e.externalId, e)
+    // Entries that lost their key (older builds synced without it) are matched by what the row carries instead.
+    const unkeyed = new Map<string, TimeEntry[]>()
+    const shapeKey = (projectId: number | undefined, date: string, comments: string, durationMin: number) => `${projectId ?? ''}|${date}|${comments.trim()}|${durationMin}`
+    for (const e of await database.entries.where('source').equals('upwork').toArray()) {
+      if (e.externalId) existingByExternal.set(e.externalId, e)
+      else {
+        const k = shapeKey(e.projectId, e.date, e.comments, e.durationMin)
+        unkeyed.set(k, [...(unkeyed.get(k) ?? []), e])
+      }
+    }
     const seen = new Set<string>()
     const daysInFile = new Set<string>()
     for (const t of file.time ?? []) {
@@ -313,7 +325,14 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
       const billable = amount > 0
       const hourlyRate = billable ? round2(t.totalCharges / t.totalHoursWorked) : 0
       const week = t.weekWorkedOn ?? t.dateWorkedOn
-      const existing = existingByExternal.get(externalId)
+      let existing = existingByExternal.get(externalId)
+      if (!existing) {
+        const adopt = unkeyed.get(shapeKey(project.id, t.dateWorkedOn, t.memo ?? '', durationMin))?.shift()
+        if (adopt) {
+          existing = { ...adopt, externalId: undefined }
+          report.entries.rekeyed++
+        }
+      }
       const feePercent = feePercentFor(t.dateWorkedOn, schedule)
       const input = {
         date: t.dateWorkedOn,
@@ -336,7 +355,7 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
         normalize: false,
       }
       if (existing) {
-        const same = existing.durationMin === durationMin && existing.amount === amount && existing.comments === input.comments && existing.projectId === project.id && (existing.billable === false) === !billable
+        const same = existing.externalId === externalId && existing.durationMin === durationMin && existing.amount === amount && existing.comments === input.comments && existing.projectId === project.id && (existing.billable === false) === !billable
         if (same) {
           report.entries.unchanged++
           continue

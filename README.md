@@ -37,7 +37,8 @@ and it behaves like a native app, including offline.
   rows are matched by contract, date and memo so a pull can be loaded again. Fees come from Upwork's fee rows;
   each payout pays the oldest earnings first, and the EUR the bank received (typed in on Data → Upwork → Payouts,
   or loaded from a bank statement CSV, matched by date and rate) gives every entry its real exchange rate. Until then entries use the ECB rate of the day and are marked as
-  estimates. Reports switch between gross, net after fees and net in EUR.
+  estimates. Reports switch between gross, net after fees and net in EUR. A daily scheduled task can pull Upwork
+  and write it into the cloud database unattended (`docs/automation/upwork-daily.md`).
 - **Master file export**: one `.xlsx` with every entry and summary sheets (by month, client, client & project,
   invoice, clients).
 - **Backup / restore** as JSON. Data is stored on the device (IndexedDB) and works offline.

@@ -117,7 +117,7 @@ describe('Upwork import', () => {
     const first = await importUpwork(file, db)
     expect(first.clients).toEqual({ created: 4, matched: 0 })
     expect(first.projects).toEqual({ created: 4, matched: 0 })
-    expect(first.entries).toEqual({ added: 5, updated: 0, unchanged: 0, removed: 0 })
+    expect(first.entries).toEqual({ added: 5, updated: 0, unchanged: 0, removed: 0, rekeyed: 0 })
     expect(first.transactions).toEqual({ added: 6, updated: 0, unchanged: 0 })
 
     const clients = await db.clients.toArray()
@@ -172,24 +172,39 @@ describe('Upwork import', () => {
     const second = await importUpwork(file, db)
     expect(second.clients).toEqual({ created: 0, matched: 0 })
     expect(second.projects).toEqual({ created: 0, matched: 4 })
-    expect(second.entries).toEqual({ added: 0, updated: 0, unchanged: 5, removed: 0 })
+    expect(second.entries).toEqual({ added: 0, updated: 0, unchanged: 5, removed: 0, rekeyed: 0 })
     expect(second.transactions).toEqual({ added: 0, updated: 0, unchanged: 6 })
 
     // A corrected row (more hours) updates the entry in place and keeps its identity; other days are untouched.
     const corrected: UpworkImportFile = { ...file, time: [{ ...file.time![0], totalHoursWorked: 7, totalCharges: 560 }] }
     const third = await importUpwork(corrected, db)
-    expect(third.entries).toEqual({ added: 0, updated: 1, unchanged: 0, removed: 0 })
+    expect(third.entries).toEqual({ added: 0, updated: 1, unchanged: 0, removed: 0, rekeyed: 0 })
     const updated = (await db.entries.where('externalId').equals('upwork:36599829:2026-10-12:1446010756').first())!
     expect(updated).toMatchObject({ id: first12.id, uid: first12.uid, durationMin: 420, amount: 560, feeAmount: 52 })
 
     // A memo edited on Upwork gets a new id: the old row disappears from the day, so its entry goes (with a tombstone).
     const renamed: UpworkImportFile = { ...file, time: [{ ...file.time![1], cursor: '202610149999999999', memo: 'RDEV-46 renamed' }, file.time![2]] }
     const fourth = await importUpwork(renamed, db)
-    expect(fourth.entries).toEqual({ added: 1, updated: 0, unchanged: 1, removed: 1 })
+    expect(fourth.entries).toEqual({ added: 1, updated: 0, unchanged: 1, removed: 1, rekeyed: 0 })
     const day14 = await db.entries.where('date').equals('2026-10-14').toArray()
     expect(day14.map((e) => e.externalId).sort()).toEqual(['upwork:33492237:2026-10-14:0411808151', 'upwork:36599829:2026-10-14:0211637669', 'upwork:36599829:2026-10-14:9999999999'])
     expect(await db.tombstones.count()).toBe(1)
     expect(await db.entries.count()).toBe(5)
+  })
+
+  it('adopts entries that lost their key, matching by project, day, memo and duration', async () => {
+    await importUpwork(file, db)
+    // An older build synced these rows without externalId.
+    await db.entries.toCollection().modify((e) => {
+      delete e.externalId
+    })
+    const again = await importUpwork(file, db)
+    expect(again.entries).toEqual({ added: 0, updated: 5, unchanged: 0, removed: 0, rekeyed: 5 })
+    expect(await db.entries.count()).toBe(5)
+    const keys = (await db.entries.toArray()).map((e) => e.externalId).sort()
+    expect(keys[0]).toBe('upwork:19450271:2026-10-15:0000000001')
+    // Keys restored: a third run changes nothing.
+    expect((await importUpwork(file, db)).entries).toEqual({ added: 0, updated: 0, unchanged: 5, removed: 0, rekeyed: 0 })
   })
 
   it('matches an existing client by name and marks it as an Upwork client', async () => {

@@ -60,7 +60,7 @@ export default function UpworkPayoutsPage() {
       const credits = parseBankCredits(await f.text())
       if (!credits.length) throw new Error('No credits found in the file')
       const all = payoutsOf(txs)
-      const report = matchBankCredits(credits, all, rateEstimator(settings.upwork?.fxRates, all))
+      const report = matchBankCredits(credits, all, rateEstimator(settings.upwork?.fxRates))
       setBank({ name: f.name, report })
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err))
