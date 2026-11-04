@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB, updateSettings } from '../../src/db/schema'
 import type { TimeEntry, UpworkTransaction } from '../../src/db/types'
 import { fetchUsdEurRates, fillGaps, ensureFxRates, yearSpans } from '../../src/lib/fx'
-import { allocatePayouts, linkFees, payoutsOf, rateEstimator, recalculateUpwork, setPayoutEur, settle, settleEntry } from '../../src/lib/upwork/allocate'
+import { allocatePayouts, linkFees, payoutRateFallback, payoutsOf, rateEstimator, recalculateUpwork, setPayoutEur, settle, settleEntry } from '../../src/lib/upwork/allocate'
 import { importUpwork, parseTransaction, type UpworkImportFile } from '../../src/lib/upwork/import'
 
 let n = 0
@@ -164,13 +164,27 @@ describe('payouts', () => {
     expect(settleEntry(entry, earnings[0], byId, 10, () => undefined)).toMatchObject({ feeAmount: 0, netAmount: 100, fxRate: 0.86, netAmountEur: 86, settlement: 'actual', payoutId: 'w1' })
   })
 
-  it('estimates from the cached ECB rate of the day, the fixing before it, or the latest payout rate', () => {
+  it('estimates from the cached ECB rate of the day or the fixing before it; the payout rate is a separate last resort', () => {
     const payouts = payoutsOf([tx({ txId: 'w', date: '2026-10-09', type: 'withdrawal', amount: 1000, eurAmount: 850 })])
-    const estimate = rateEstimator({ '2026-10-02': 0.9, '2026-10-30': 0.95 }, payouts)
+    const estimate = rateEstimator({ '2026-10-02': 0.9, '2026-10-30': 0.95 })
     expect(estimate('2026-10-02')).toBe(0.9)
     expect(estimate('2026-10-04')).toBe(0.9) // Saturday: Friday's fixing
-    expect(estimate('2026-10-20')).toBe(0.85) // too far from any fixing: payout rate
-    expect(rateEstimator(undefined, [])('2026-10-20')).toBeUndefined()
+    expect(estimate('2026-10-20')).toBeUndefined() // too far from any fixing
+    expect(rateEstimator(undefined)('2026-10-20')).toBeUndefined()
+    expect(payoutRateFallback(payouts)('2026-10-20')).toBe(0.85)
+    expect(payoutRateFallback([])('2026-10-20')).toBeUndefined()
+  })
+
+  it('keeps the estimate another device gave an entry when this device has no rate for the day', () => {
+    const byId = new Map<string, ReturnType<typeof payoutsOf>[number]>()
+    const entry = { id: 1, date: '2026-10-20', amount: 100, settlement: 'estimated', fxRate: 0.87 } as TimeEntry
+    // No ECB rate here: the existing 0.87 stays rather than being replaced by the payout fallback.
+    expect(settleEntry(entry, undefined, byId, 10, () => undefined, () => 0.85)).toMatchObject({ fxRate: 0.87, netAmountEur: 78.3, settlement: 'estimated' })
+    // An ECB rate for the day wins over the old estimate; an entry with no rate at all takes the fallback.
+    expect(settleEntry(entry, undefined, byId, 10, () => 0.9, () => 0.85)).toMatchObject({ fxRate: 0.9 })
+    expect(settleEntry({ ...entry, fxRate: undefined }, undefined, byId, 10, () => undefined, () => 0.85)).toMatchObject({ fxRate: 0.85 })
+    // An actual rate that became stale (payout un-priced) is not kept as an estimate.
+    expect(settleEntry({ ...entry, settlement: 'actual' }, undefined, byId, 10, () => undefined, () => 0.85)).toMatchObject({ fxRate: 0.85 })
   })
 })
 

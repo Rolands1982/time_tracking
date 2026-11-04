@@ -227,7 +227,7 @@ function earningFor(entry: TimeEntry, contractId: string, byContract: Map<string
 }
 
 /** Work out fee, net, rate and EUR for one entry from its invoice and the payouts that covered it. */
-export function settleEntry(entry: TimeEntry, earning: Earning | undefined, payoutById: Map<string, Payout>, feePercent: number, estimate: RateEstimate): SettlementPatch {
+export function settleEntry(entry: TimeEntry, earning: Earning | undefined, payoutById: Map<string, Payout>, feePercent: number, estimate: RateEstimate, fallback: RateEstimate = () => undefined): SettlementPatch {
   const gross = entry.amount
   if (!(gross > 0)) return { feeAmount: 0, netAmount: 0, fxRate: undefined, netAmountEur: 0, settlement: 'actual', payoutId: undefined }
   let fee: number
@@ -250,7 +250,9 @@ export function settleEntry(entry: TimeEntry, earning: Earning | undefined, payo
       fxActual = true
     }
   }
-  if (!fxActual) fxRate = estimate(entry.date)
+  // No actual rate: the ECB rate of the day when this device has it, else whatever estimate the entry already
+  // carries (another device may have had the rate), else the latest payout rate.
+  if (!fxActual) fxRate = estimate(entry.date) ?? (entry.settlement === 'estimated' ? entry.fxRate : undefined) ?? fallback(entry.date)
   return {
     feeAmount: fee,
     netAmount: net,
@@ -284,6 +286,7 @@ export function settle({ entries, transactions, projects, feeSchedule, estimate 
   const payouts = payoutsOf(transactions)
   allocatePayouts(earnings, payouts)
   const payoutById = new Map(payouts.map((p) => [p.tx.txId, p]))
+  const fallback = payoutRateFallback(payouts)
   const byContract = new Map<string, Earning[]>()
   for (const e of earnings) if (e.tx.contractId) byContract.set(e.tx.contractId, [...(byContract.get(e.tx.contractId) ?? []), e])
   const contractOfProject = new Map(projects.filter((p) => p.upwork?.contractId).map((p) => [p.id!, p.upwork!.contractId]))
@@ -292,7 +295,7 @@ export function settle({ entries, transactions, projects, feeSchedule, estimate 
   for (const entry of entries) {
     const contractId = entry.projectId != null ? contractOfProject.get(entry.projectId) : undefined
     const earning = contractId ? earningFor(entry, contractId, byContract) : undefined
-    patches.set(entry.id!, settleEntry(entry, earning, payoutById, feePercentFor(entry.date, feeSchedule), estimate))
+    patches.set(entry.id!, settleEntry(entry, earning, payoutById, feePercentFor(entry.date, feeSchedule), estimate, fallback))
   }
   const unpaidNet = round2(earnings.reduce((s, e) => s + e.net - e.payouts.reduce((c, p) => c + p.amount, 0), 0))
   return { earnings, payouts, unallocatedFees, unpaidNet, patches }
@@ -315,10 +318,13 @@ export interface RecalculationReport {
   payoutsWithoutEur: number
 }
 
-/** Rate for a date from the cached ECB rates, else the nearest cached day before it, else the latest known payout rate. */
-export function rateEstimator(cache: Record<string, number> | undefined, payouts: Payout[]): RateEstimate {
+/**
+ * Rate for a date from the cached ECB rates, else the nearest cached fixing within a week before it. Undefined
+ * when this device knows nothing about the day: the entry then keeps the estimate another device gave it, and
+ * only an entry with no rate at all falls back to the latest payout rate (see settleEntry).
+ */
+export function rateEstimator(cache: Record<string, number> | undefined): RateEstimate {
   const days = Object.keys(cache ?? {}).sort()
-  const rated = payouts.filter((p) => p.rate != null)
   return (date) => {
     if (cache?.[date] != null) return cache[date]
     // Weekends and holidays: the last ECB fixing before the date, if it is close enough to mean something.
@@ -333,10 +339,14 @@ export function rateEstimator(cache: Record<string, number> | undefined, payouts
       } else hi = mid - 1
     }
     if (best && best >= addDays(date, -7)) return cache![best]
-    const before = rated.filter((p) => p.tx.date <= date)
-    const pick = before.at(-1) ?? rated[0]
-    return pick?.rate
+    return undefined
   }
+}
+
+/** The rate of the latest priced payout on or before the date (else the first priced one): a last resort. */
+export function payoutRateFallback(payouts: Payout[]): RateEstimate {
+  const rated = payouts.filter((p) => p.rate != null)
+  return (date) => (rated.filter((p) => p.tx.date <= date).at(-1) ?? rated[0])?.rate
 }
 
 /** Rewrite the cached settlement columns of every Upwork entry from the ledger. Returns what changed. */
@@ -347,8 +357,7 @@ export async function recalculateUpwork(database: TimeTrackingDB = db): Promise<
     database.upworkTransactions.toArray(),
     database.projects.toArray(),
   ])
-  const payouts = payoutsOf(transactions)
-  const estimate = rateEstimator(settings.upwork?.fxRates, payouts)
+  const estimate = rateEstimator(settings.upwork?.fxRates)
   const result = settle({ entries, transactions, projects, feeSchedule: settings.upwork?.feeSchedule, estimate })
   let estimated = 0
   const now = new Date().toISOString()

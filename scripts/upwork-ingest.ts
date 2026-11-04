@@ -75,7 +75,7 @@ async function main() {
     console.log(
       [
         `pulled ${summary.pulled}`,
-        i ? `time rows ${i.entries.added} new / ${i.entries.updated} updated / ${i.entries.removed} removed, transactions ${i.transactions.added} new` : null,
+        i ? `time rows ${i.entries.added} new / ${i.entries.updated} updated / ${i.entries.removed} removed${i.entries.rekeyed ? ` / ${i.entries.rekeyed} rekeyed` : ''}, transactions ${i.transactions.added} new` : null,
         summary.bank ? `bank credits ${summary.bank.matched} matched (${summary.bank.alreadyPriced} already), ${summary.bank.unmatched} unmatched` : null,
         `settled ${summary.settlement.updated}, ${summary.settlement.estimated} estimated, ${summary.settlement.payoutsWithoutEur} payouts without EUR`,
         summary.rates?.error ? `ECB rates: ${summary.rates.error}` : summary.rates ? `ECB rates ${summary.rates.fetched} new` : null,

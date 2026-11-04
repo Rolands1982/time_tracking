@@ -74,7 +74,7 @@ describe('unattended ingest', () => {
     const task = new TimeTrackingDB(`ingest-task-${n}`)
     const summary = await ingestUpwork({ db: task, remote, file: dailyFile as UpworkImportFile, bankCredits: [{ date: '2026-10-27', amount: 810 }], fetchRates: false })
     expect(summary.pulled).toBe(1 + 1 + 2 + 4) // client, project, 2 entries, 4 transactions
-    expect(summary.import!.entries).toEqual({ added: 1, updated: 0, unchanged: 0, removed: 0 })
+    expect(summary.import!.entries).toEqual({ added: 1, updated: 0, unchanged: 0, removed: 0, rekeyed: 0 })
     expect(summary.import!.transactions.unchanged).toBe(4)
     expect(summary.bank).toEqual({ matched: 1, alreadyPriced: 0, unmatched: 0 })
     // All three days fall inside the invoiced week, which the priced payout covers: nothing stays estimated.

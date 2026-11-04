@@ -42,7 +42,7 @@ export async function ingestUpwork({ db, remote, file, bankCredits, fetchRates =
     const txs = await db.upworkTransactions.toArray()
     const payouts = payoutsOf(txs)
     const settings = await db.settings.get('app')
-    const report = matchBankCredits(bankCredits, payouts, rateEstimator(settings?.upwork?.fxRates, payouts))
+    const report = matchBankCredits(bankCredits, payouts, rateEstimator(settings?.upwork?.fxRates))
     const fresh = report.matches.filter((m) => !m.already)
     for (const m of fresh) await setPayoutEur(m.payout.tx.txId, m.credit.amount, m.credit.date, db)
     summary.bank = { matched: fresh.length, alreadyPriced: report.matches.length - fresh.length, unmatched: report.unmatched.length }
