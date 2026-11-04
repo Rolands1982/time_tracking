@@ -166,7 +166,7 @@ a fee total; the customer summary stays gross, as Upwork clients see it.
 **Stage 3 — Fixed-price milestones (½ session).** The "milestones without hours" list and the entry creation
 flow above; estimated-hours badge; the hours report counts them.
 
-**Stage 4 — Daily automation (½ session, plus secrets on the user's side).**
+**Stage 4 — Daily automation (½ session, plus secrets on the user's side; (a) built, see `docs/automation/upwork-daily.md`; bank credits next).**
 a) *Scheduled Claude task:* fires daily with the Upwork connector attached, pulls yesterday's time rows and the
    new transactions, runs `scripts/upwork-ingest.ts`, which validates and writes to Supabase signed in as the
    user (e-mail and password from environment secrets, never from the repository), and reports a one-line

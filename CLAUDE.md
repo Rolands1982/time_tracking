@@ -42,7 +42,8 @@ src/lib       pure helpers: time/money, periods, customer summary (statement.ts)
 src/pages     Timer, Entries, Entry form, Reports, Summary (customer summary → Excel/PDF), Clients, Data
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app);
-              upwork-merge.ts: merge several Upwork pull files into one import file
+              upwork-merge.ts: merge several Upwork pull files; upwork-assemble.ts: raw connector responses → import
+              file; upwork-ingest.ts: unattended import into the cloud database (docs/automation/upwork-daily.md)
 supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view;
               functions/send-mail: Edge Function that e-mails documents through the owner's SMTP mailbox
 tests/unit    vitest (fake-indexeddb); tests/e2e: Playwright smoke test on a phone viewport
@@ -112,3 +113,5 @@ Conventions that matter:
 - Pages must be enabled with source "GitHub Actions" (done). The `configure-pages` step is non-fatal.
 - The Supabase project URL and publishable key come from `.env`; the schema is applied manually from
   `supabase/schema.sql`. Edge Functions are deployed manually too (dashboard editor or CLI); note it in the PR.
+- A daily scheduled Claude task pulls Upwork through the connector and runs `scripts/upwork-ingest.ts` with the
+  owner's Supabase login from environment secrets (`docs/automation/upwork-daily.md`). Never print or commit them.

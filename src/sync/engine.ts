@@ -264,13 +264,14 @@ export class SyncEngine {
 
   async pendingCount(): Promise<number> {
     const d = this.database
-    const [a, b, c, t] = await Promise.all([
+    const [a, b, c, u, t] = await Promise.all([
       d.clients.where('dirty').equals(1).count(),
       d.projects.where('dirty').equals(1).count(),
       d.entries.where('dirty').equals(1).count(),
+      d.upworkTransactions.where('dirty').equals(1).count(),
       d.tombstones.count(),
     ])
-    return a + b + c + t
+    return a + b + c + u + t
   }
 
   private async pushDeletes(): Promise<number> {
