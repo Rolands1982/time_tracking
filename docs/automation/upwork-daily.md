@@ -19,14 +19,19 @@ nothing is uploaded by hand.
    project URL and publishable key come from `.env`; `SUPABASE_URL` / `SUPABASE_ANON_KEY` override them.
 2. Cloud environment → **Network access**: allow the Supabase project host (`*.supabase.co`) and
    `api.frankfurter.dev` (ECB rates; optional, the fallback rate is used when it is unreachable).
-3. The scheduled task runs in this environment with the **Upwork** connector attached. Its prompt is below.
+3. The scheduled task runs in this environment with the **Upwork** connector attached (added in the claude.ai
+   scheduled tasks list; a session started by the task has no connectors otherwise). Sessions it starts come up
+   without the repository, so the prompt clones it. Its prompt is below.
+
+First supervised run (4 Nov 2026, from a fresh session with the secrets): signed in, pulled 9,013 rows, imported
+5 new time rows and rekeyed 8, pushed 13 rows, nothing duplicated.
 
 ## Scheduled task prompt
 
 ```
-Daily Upwork ingest for the time tracking app (repository Rolands1982/time_tracking, checked out in this session).
+Daily Upwork ingest for the time tracking app (repository Rolands1982/time_tracking). Read docs/automation/upwork-daily.md first once the repository is cloned.
 
-1. `npm ci` if node_modules is missing. Create a folder `raw/` in the scratchpad directory.
+1. If /home/user/time_tracking does not exist: `git clone --depth 50 https://github.com/Rolands1982/time_tracking /home/user/time_tracking`. Then `cd /home/user/time_tracking && npm ci`. Create a folder `raw/` in the scratchpad directory.
 2. With the Upwork connector (org_uid 788474464916398081; find it with list_accounts if it fails), fetch:
    a) get_freelancer_financials action "timesheets", params {from_date: <today minus 10 days>, to_date: <today>, limit: 10},
       then follow pageInfo.endCursor with params.cursor until hasNextPage is false. Save EVERY response verbatim,
@@ -37,7 +42,7 @@ Daily Upwork ingest for the time tracking app (repository Rolands1982/time_track
 3. Run: node --import tsx scripts/upwork-assemble.ts <scratchpad>/import.json <scratchpad>/raw/*.json
    It prints the counts; stop and report if it finds 0 time rows AND 0 transactions.
 4. Run: node --import tsx scripts/upwork-ingest.ts <scratchpad>/import.json
-   (SUPABASE_EMAIL and SUPABASE_PASSWORD are environment secrets; never print them.)
+   SUPABASE_EMAIL and SUPABASE_PASSWORD are environment secrets; never print them. A line "ECB rates: …" with an error is not a failure.
 5. Report the script's last line (pulled / new rows / settled / pushed) in one sentence. If any step failed,
    say which and quote the error. Do not commit, push or change the repository; do not retry more than once.
 ```
