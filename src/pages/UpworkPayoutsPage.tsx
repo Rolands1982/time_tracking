@@ -9,6 +9,7 @@ import { formatDate } from '../lib/period'
 import { formatMoney } from '../lib/time'
 import { allocatePayouts, linkFees, payoutsOf, rateEstimator, recalculateUpwork, recalculateWithRates, refreshRatesAndRecalculate, setPayoutEur, type Payout } from '../lib/upwork/allocate'
 import { matchBankCredits, parseBankCredits, type BankMatchReport } from '../lib/upwork/bankCredits'
+import { pullLatest } from '../sync/pullLatest'
 
 /**
  * Upwork payouts: what Upwork withdrew to the bank, what the bank received in EUR (typed in from the bank
@@ -39,6 +40,7 @@ export default function UpworkPayoutsPage() {
   const recalc = async (why: string) => {
     setBusy(true)
     try {
+      await pullLatest()
       const r = await recalculateUpwork()
       toast(`${why}: ${r.updated} entries updated, ${r.estimated} still estimated`)
       if (r.estimated > 0) {
@@ -72,6 +74,7 @@ export default function UpworkPayoutsPage() {
     const fresh = bank.report.matches.filter((m) => !m.already)
     setBusy(true)
     try {
+      await pullLatest()
       for (const m of fresh) await setPayoutEur(m.payout.tx.txId, m.credit.amount, m.credit.date)
       setBank(null)
       setBankKey((k) => k + 1)
@@ -84,6 +87,7 @@ export default function UpworkPayoutsPage() {
   const recalcWithRates = async () => {
     setBusy(true)
     try {
+      await pullLatest()
       const r = await recalculateWithRates()
       const days = r.ratesFetched + r.ratesCached
       toast(
@@ -110,6 +114,7 @@ export default function UpworkPayoutsPage() {
       setDrafts(({ [p.tx.txId]: _drop, ...rest }) => rest)
       return
     }
+    await pullLatest()
     await setPayoutEur(p.tx.txId, value, value != null ? p.tx.date : undefined)
     setDrafts(({ [p.tx.txId]: _drop, ...rest }) => rest)
     await recalc(`Payout ${formatDate(p.tx.date)} saved`)

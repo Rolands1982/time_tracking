@@ -69,7 +69,9 @@ Conventions that matter:
   payout that covered its invoice (EUR amount typed in on the Payouts screen or matched from a bank statement by
   `src/lib/upwork/bankCredits.ts`: booked 1–14 days after the withdrawal, rate 0.78–1.02), otherwise the ECB rate of the day
   (`src/lib/fx.ts`, cached in `settings.upwork.fxRates`) and `settlement: 'estimated'`. Run
-  `recalculateWithRates()` after imports and payout edits; never edit the cached columns by hand.
+  `recalculateWithRates()` after imports and payout edits; never edit the cached columns by hand. Screens call
+  `pullLatest()` (`src/sync/pullLatest.ts`) first, so a device never derives from a stale copy and pushes it over
+  fresher cloud rows.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.

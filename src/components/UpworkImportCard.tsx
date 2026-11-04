@@ -5,6 +5,7 @@ import { db } from '../db/schema'
 import { recalculateUpwork, refreshRatesAndRecalculate } from '../lib/upwork/allocate'
 import { importUpwork, isUpworkImportFile, type UpworkImportFile, type UpworkImportReport } from '../lib/upwork/import'
 import { formatMoney } from '../lib/time'
+import { pullLatest } from '../sync/pullLatest'
 import { useToast } from './toastContext'
 
 /** Data screen section: load an Upwork pull (JSON produced from the Upwork MCP server) into the app. */
@@ -52,6 +53,7 @@ export default function UpworkImportCard() {
     if (!file) return
     setBusy(true)
     try {
+      await pullLatest()
       const r = await importUpwork(file)
       setReport(r)
       toast(`Upwork: ${r.entries.added} new rows, ${r.entries.updated} updated, ${r.entries.removed} removed, ${r.transactions.added} new transactions`)
