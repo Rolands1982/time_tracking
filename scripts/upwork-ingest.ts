@@ -3,8 +3,10 @@
  * in-memory copy of the app database, apply an Upwork import file and/or a bank credits CSV with the
  * app's own importer, matcher and settlement, and push the changes back. Devices pick them up by sync.
  *
- *   SUPABASE_EMAIL=… SUPABASE_PASSWORD=… node --import tsx scripts/upwork-ingest.ts [import.json] [--bank credits.csv] [--dry-run] [--no-rates]
+ *   SUPABASE_EMAIL=… SUPABASE_PASSWORD=… node --import tsx scripts/upwork-ingest.ts [import.json] [--bank credits.csv] [--dry-run] [--no-rates] [--no-cloud-credits]
  *
+ * Bank credits come from the cloud table bank_credits (forwarded by the personal finances app) unless
+ * --no-cloud-credits is given; a --bank CSV is added to them.
  * SUPABASE_URL / SUPABASE_ANON_KEY default to the VITE_ values in .env. The password is read from the
  * environment only: never put it in a file inside the repository.
  */
@@ -14,6 +16,7 @@ import { createClient } from '@supabase/supabase-js'
 import { TimeTrackingDB } from '../src/db/schema'
 import { SupabaseRemote } from '../src/sync/remote'
 import { parseBankCredits } from '../src/lib/upwork/bankCredits'
+import { loadCloudBankCredits } from '../src/lib/upwork/cloudCredits'
 import { isUpworkImportFile } from '../src/lib/upwork/import'
 import { ingestUpwork } from '../src/lib/upwork/ingest'
 
@@ -41,10 +44,11 @@ async function main() {
   }
   const dryRun = flag('--dry-run')
   const fetchRates = !flag('--no-rates')
+  const cloudCredits = !flag('--no-cloud-credits')
   const bankPath = option('--bank')
   const [filePath] = args
   if (!filePath && !bankPath) {
-    console.error('usage: upwork-ingest.ts [import.json] [--bank credits.csv] [--dry-run] [--no-rates]')
+    console.error('usage: upwork-ingest.ts [import.json] [--bank credits.csv] [--dry-run] [--no-rates] [--no-cloud-credits]')
     process.exit(1)
   }
 
@@ -62,12 +66,25 @@ async function main() {
     if (!isUpworkImportFile(parsed)) throw new Error(`${filePath}: not an Upwork import file`)
     file = parsed
   }
-  const bankCredits = bankPath ? parseBankCredits(readFileSync(bankPath, 'utf8')) : undefined
+  const csvCredits = bankPath ? parseBankCredits(readFileSync(bankPath, 'utf8')) : []
 
   const client = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const { error } = await client.auth.signInWithPassword({ email, password })
   if (error) throw new Error(`Sign-in failed: ${error.message}`)
   try {
+    // The table may not exist yet (schema not applied): say so, then carry on without bank credits.
+    let cloud: string | null = null
+    const credits = [...csvCredits]
+    if (cloudCredits) {
+      try {
+        const rows = await loadCloudBankCredits(client)
+        credits.push(...rows)
+        cloud = `cloud credits ${rows.length}`
+      } catch (err) {
+        cloud = `cloud credits: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+    const bankCredits = credits.length ? credits : undefined
     const db = new TimeTrackingDB(`ingest-${Date.now()}`)
     const summary = await ingestUpwork({ db, remote: new SupabaseRemote(client), file, bankCredits, fetchRates, dryRun })
     console.log(JSON.stringify(summary))
@@ -76,6 +93,7 @@ async function main() {
       [
         `pulled ${summary.pulled}`,
         i ? `time rows ${i.entries.added} new / ${i.entries.updated} updated / ${i.entries.removed} removed${i.entries.rekeyed ? ` / ${i.entries.rekeyed} rekeyed` : ''}, transactions ${i.transactions.added} new` : null,
+        cloud,
         summary.bank ? `bank credits ${summary.bank.matched} matched (${summary.bank.alreadyPriced} already), ${summary.bank.unmatched} unmatched` : null,
         `settled ${summary.settlement.updated}, ${summary.settlement.estimated} estimated, ${summary.settlement.payoutsWithoutEur} payouts without EUR`,
         summary.rates?.error ? `ECB rates: ${summary.rates.error}` : summary.rates ? `ECB rates ${summary.rates.fetched} new` : null,
