@@ -49,18 +49,18 @@ Daily Upwork ingest for the time tracking app (repository Rolands1982/time_track
 
 ## Bank credits
 
-The personal finances app (repository `Rolands1982/personal-finances`) forwards every EUR credit from Upwork to
-the cloud table `bank_credits` on each bank sync (`backend/upwork_credits.py`; the table is in
-`supabase/schema.sql`). The ingest script reads the table after signing in and matches the credits to payouts
+The personal finances app (repository `Rolands1982/personal-finances`) forwards every EUR credit from Upwork
+(payer "PAYMENT ESCROW INC", also through Payoneer) to the cloud table `bank_credits` on each bank sync
+(`backend/upwork_credits.py`; the table is in `supabase/schema.sql`). Two sources go out: the transactions
+the bank just reported and the Income records of its Excel file, so the monthly statement import fills any
+week the API missed; `creditsFromRows` counts a credit once when both carry it. The ingest script reads the table after signing in and matches the credits to payouts
 exactly as the Payouts screen does with a CSV, so a payout gets its EUR amount the day after the bank books it.
 Nothing on the phone or laptop changes: the priced payouts arrive through sync.
 
 Setup on the PC that runs the personal finances app: a file `time_tracking_supabase.json` next to the Enable
 Banking credentials (`C:\Users\Rolands\secrets\enablebanking`, never in a repository) with `url`, `anon_key`
 (the publishable key from this repository's `.env`), `email` and `password` (the app login). Without the file the
-finance app sends nothing. A one-off backfill from the bank files it already holds:
-`python -m backend.upwork_credits --from-files`; after a reconnect, a sync with a longer look-back forwards the
-weeks the bank missed.
+finance app sends nothing. A one-off backfill: `python -m backend.upwork_credits --from-files --from-records`.
 
 `--no-cloud-credits` skips the table; `--bank credits.csv` adds a statement export to whatever the table holds.
 A line `cloud credits: …` with an error (for example the table not created yet) is a warning: the run continues.
