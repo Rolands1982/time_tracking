@@ -35,8 +35,8 @@ and it behaves like a native app, including offline.
 - **Upwork**: Data → Upwork loads a pull from Upwork's MCP server (contracts, daily time, the transaction
   ledger) as clients, projects, timeless entries in USD (one per contract, day and memo) and raw transactions;
   rows are matched by contract, date and memo so a pull can be loaded again. Fees come from Upwork's fee rows;
-  each payout pays the oldest earnings first, and typing the EUR the bank received (Data → Upwork → Payouts)
-  gives every entry its real exchange rate. Until then entries use the ECB rate of the day and are marked as
+  each payout pays the oldest earnings first, and the EUR the bank received (typed in on Data → Upwork → Payouts,
+  or loaded from a bank statement CSV, matched by date and rate) gives every entry its real exchange rate. Until then entries use the ECB rate of the day and are marked as
   estimates. Reports switch between gross, net after fees and net in EUR.
 - **Master file export**: one `.xlsx` with every entry and summary sheets (by month, client, client & project,
   invoice, clients).

@@ -65,7 +65,8 @@ Conventions that matter:
   `upwork.contractId`, clients `upworkClientId`. Fee rows reference the *term* id, time rows map term → contract.
   Settlement (`src/lib/upwork/allocate.ts`) is derived from the ledger and cached on the entries: fees link to
   invoices by contract and day, payouts pay the oldest earnings first (FIFO), an entry's `fxRate` is that of the
-  payout that covered its invoice (EUR amount typed in on the Payouts screen), otherwise the ECB rate of the day
+  payout that covered its invoice (EUR amount typed in on the Payouts screen or matched from a bank statement by
+  `src/lib/upwork/bankCredits.ts`: booked 1–14 days after the withdrawal, rate 0.78–1.02), otherwise the ECB rate of the day
   (`src/lib/fx.ts`, cached in `settings.upwork.fxRates`) and `settlement: 'estimated'`. Run
   `recalculateWithRates()` after imports and payout edits; never edit the cached columns by hand.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
