@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import ExcelJS from 'exceljs'
 import pdfMake from 'pdfmake'
 import type { Client, Project, TimeEntry } from '../../src/db/types'
-import { buildStatement, DEFAULT_COLUMNS, normalizeColumns, statementFileName } from '../../src/lib/statement'
+import { buildStatement, DEFAULT_COLUMNS, normalizeColumns, PLATFORM_DEFAULT_COLUMNS, statementFileName } from '../../src/lib/statement'
 import { buildStatementWorkbook } from '../../src/lib/excel/exportStatement'
 import { statementDocDefinition } from '../../src/lib/pdf/statementPdf'
 import { isoWeek, periodFromParams, periodLabel, periodRange, periodToParams, rangeLabel, stepPeriod, weekRange } from '../../src/lib/period'
@@ -51,8 +51,8 @@ describe('customer summary', () => {
     expect(st.rows[2]).toMatchObject({ minutes: 30, actualMin: 24, project: 'Izstrāde' })
     expect(st.rows[3]).toMatchObject({ billable: false, amount: 0 })
     expect(st.byProject).toEqual([
-      { name: 'Izstrāde', count: 2, minutes: 150, amount: 150 },
-      { name: 'Support', count: 1, minutes: 60, amount: 60 },
+      { name: 'Izstrāde', count: 2, minutes: 150, amount: 150, netAmount: 150, netAmountEur: 150 },
+      { name: 'Support', count: 1, minutes: 60, amount: 60, netAmount: 60, netAmountEur: 60 },
     ])
     expect(statementFileName(st, 'pdf')).toBe('Summary_Polystylex_SIA_2026-03-01_2026-03-31.pdf')
   })
@@ -113,6 +113,46 @@ describe('customer summary', () => {
     expect(total.getCell(1).value).toBe('Total')
     expect((total.getCell(7).value as { formula: string }).formula).toBe('SUBTOTAL(9,G11:G14)')
     expect(ws.getCell('A17').value).toBe('By project')
+  })
+
+  it('shows gross, net and net EUR for a platform client, in the preview model, Excel and PDF', async () => {
+    const upwork: Client = { id: 3, name: 'Northwind Supply', defaultRate: 80, currency: 'USD', platform: 'upwork' }
+    const rows = [
+      entry({ clientId: 3, date: '2026-03-05', amount: 100, hourlyRate: 80, feeAmount: 10, netAmount: 90, fxRate: 0.9, netAmountEur: 81, currency: 'USD', source: 'upwork', timeless: true, isBilled: true, invoiceRef: 'Upwork week 2026-03-02', projectId: 10 }),
+      entry({ clientId: 3, date: '2026-03-12', amount: 50, hourlyRate: 80, feeAmount: 5, netAmount: 45, currency: 'USD', source: 'upwork', timeless: true, settlement: 'estimated', projectId: 11 }),
+    ]
+    const st = buildStatement({ client: upwork, entries: rows, projects, from: '2026-03-01', to: '2026-03-31', columns: PLATFORM_DEFAULT_COLUMNS, generatedAt: '2026-04-02' })
+    expect(st).toMatchObject({ currency: 'USD', amount: 150, netAmount: 135, netAmountEur: 81, eurMissing: 1 })
+    expect(st.columns).toEqual(['date', 'project', 'description', 'hours', 'rate', 'amount', 'net', 'netEur', 'invoice'])
+    expect(st.rows.map((r) => [r.amount, r.netAmount, r.netAmountEur])).toEqual([
+      [100, 90, 81],
+      [50, 45, undefined],
+    ])
+    expect(st.byProject).toEqual([
+      { name: 'Izstrāde', count: 1, minutes: 60, amount: 100, netAmount: 90, netAmountEur: 81 },
+      { name: 'Support', count: 1, minutes: 60, amount: 50, netAmount: 45, netAmountEur: 0 },
+    ])
+
+    const read = new ExcelJS.Workbook()
+    await read.xlsx.load((await buildStatementWorkbook(st).xlsx.writeBuffer()) as never)
+    const ws = read.getWorksheet('Summary')!
+    expect(ws.getCell('A7').value).toBe('Net after fees')
+    expect(ws.getCell('D7').value).toBe(135)
+    expect(String(ws.getCell('A8').value)).toMatch(/^Net EUR/)
+    expect(ws.getCell('D8').value).toBe(81)
+    // Two extra stat lines push the table down: header on row 11, rows 12–13, total on 14.
+    const header = ws.getRow(11).values as unknown[]
+    expect(header.slice(1)).toEqual(['Date', 'Project', 'Description', 'Hours', 'Rate', 'Amount', 'Net', 'Net EUR', 'Invoice'])
+    expect(ws.getRow(12).getCell(7).value).toBe(90)
+    expect(ws.getRow(12).getCell(8).value).toBe(81)
+    expect(ws.getRow(13).getCell(8).value).toBeNull()
+    expect(ws.getRow(14).getCell(8).value).toMatchObject({ formula: 'SUBTOTAL(9,H12:H13)' })
+
+    const def = statementDocDefinition(st)
+    const table = (def.content as { table?: { body: { text: string }[][] } }[]).find((c) => c.table && c.table.body.length > 2)!.table!
+    expect(table.body[0].map((c) => c.text)).toEqual(['Date', 'Project', 'Description', 'Hours', 'Rate', 'Amount', 'Net', 'Net EUR', 'Invoice'])
+    expect(table.body[table.body.length - 1].map((c) => c.text)).toEqual(['Total', '', '', '2.00', '', '150.00 USD', '135.00 USD', '81.00 EUR', ''])
+    expect(JSON.stringify(def.content)).toContain('Net after fees')
   })
 
   it('renders a PDF with Latvian characters through pdfmake', async () => {

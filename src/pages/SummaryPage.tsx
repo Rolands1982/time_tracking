@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
+import { isPlatformClient } from '../db/repo'
 import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, XLSX_MIME } from '../lib/download'
@@ -18,6 +19,7 @@ import {
   hours,
   invoiceText,
   normalizeColumns,
+  PLATFORM_DEFAULT_COLUMNS,
   STATEMENT_COLUMNS,
   statementFileName,
   timeText,
@@ -28,7 +30,7 @@ import {
 import { formatMoney, todayIso } from '../lib/time'
 
 type Format = 'pdf' | 'xlsx'
-const NUMERIC = new Set<StatementColumn>(['hours', 'rate', 'amount'])
+const NUMERIC = new Set<StatementColumn>(['hours', 'rate', 'amount', 'net', 'netEur'])
 const COLUMN_LABEL = Object.fromEntries(STATEMENT_COLUMNS.map((c) => [c.key, c.label])) as Record<StatementColumn, string>
 
 function previewCell(r: Statement['rows'][number], c: StatementColumn, st: Statement) {
@@ -49,6 +51,10 @@ function previewCell(r: Statement['rows'][number], c: StatementColumn, st: State
       return r.billable ? formatMoney(r.rate, st.currency) : '–'
     case 'amount':
       return r.billable ? formatMoney(r.amount, st.currency) : '–'
+    case 'net':
+      return r.billable ? formatMoney(r.netAmount, st.currency) : '–'
+    case 'netEur':
+      return r.billable ? (r.netAmountEur != null ? formatMoney(r.netAmountEur, 'EUR') : <span className="muted">no rate</span>) : '–'
     default:
       return <span className={`badge ${r.isBilled ? 'billed' : r.billable ? 'open' : ''}`}>{invoiceText(r, formatDate)}</span>
   }
@@ -102,7 +108,15 @@ export default function SummaryPage() {
   const [compose, setCompose] = useState<Compose | null>(null)
   const clientParam = Number(params.get('client'))
   const clientId = clientParam > 0 ? clientParam : undefined
-  const columns = useMemo(() => normalizeColumns(settings.summaryColumns), [settings.summaryColumns])
+  const client = clientId != null ? clientById.get(clientId) : undefined
+  // Upwork clients keep a column choice of their own: gross, net and net EUR by default.
+  const platform = isPlatformClient(client)
+  const columns = useMemo(
+    () => (platform ? normalizeColumns(settings.summaryColumnsPlatform, PLATFORM_DEFAULT_COLUMNS) : normalizeColumns(settings.summaryColumns)),
+    [platform, settings.summaryColumns, settings.summaryColumnsPlatform],
+  )
+  const saveColumns = (next: readonly string[]) =>
+    updateSettings(platform ? { summaryColumnsPlatform: normalizeColumns(next, PLATFORM_DEFAULT_COLUMNS) } : { summaryColumns: normalizeColumns(next) })
   const shareable = useMemo(() => canShareFiles(), [])
 
   // Keep the selection in the URL so the page survives a reload and can be linked to.
@@ -123,7 +137,6 @@ export default function SummaryPage() {
     [] as TimeEntry[],
   )
 
-  const client = clientId != null ? clientById.get(clientId) : undefined
   const statement = useMemo(
     () => (client ? buildStatement({ client, entries, projects, from: range.from, to: range.to, filter, columns }) : null),
     [client, entries, projects, range.from, range.to, filter, columns],
@@ -132,7 +145,7 @@ export default function SummaryPage() {
   const toggleColumn = (key: StatementColumn) => {
     const next = columns.includes(key) ? columns.filter((c) => c !== key) : [...columns, key]
     if (!next.length) return toast('Keep at least one column')
-    void updateSettings({ summaryColumns: normalizeColumns(next) })
+    void saveColumns(next)
   }
 
   const run = async (action: 'download' | 'share' | 'email') => {
@@ -227,7 +240,7 @@ export default function SummaryPage() {
               ))}
             </div>
             <div className="row">
-              <button type="button" className="btn small ghost" onClick={() => void updateSettings({ summaryColumns: [...DEFAULT_COLUMNS] })}>
+              <button type="button" className="btn small ghost" onClick={() => void saveColumns(platform ? PLATFORM_DEFAULT_COLUMNS : DEFAULT_COLUMNS)}>
                 Reset to default
               </button>
               <span className="muted small">The selection is remembered on this device and applies to the preview, Excel and PDF.</span>
@@ -255,6 +268,19 @@ export default function SummaryPage() {
                 <div className="label">Total amount</div>
                 <div className="value">{formatMoney(statement.amount, statement.currency)}</div>
               </div>
+              {has('net') && (
+                <div className="stat">
+                  <div className="label">Net after fees</div>
+                  <div className="value">{formatMoney(statement.netAmount, statement.currency)}</div>
+                </div>
+              )}
+              {has('netEur') && (
+                <div className="stat">
+                  <div className="label">Net EUR</div>
+                  <div className="value">{formatMoney(statement.netAmountEur, 'EUR')}</div>
+                  {statement.eurMissing > 0 && <div className="label">{statement.eurMissing} without a rate yet</div>}
+                </div>
+              )}
               <div className="stat">
                 <div className="label">Entries</div>
                 <div className="value">{statement.count}</div>
@@ -347,6 +373,8 @@ export default function SummaryPage() {
                       <th>Project</th>
                       <th className="num">Hours</th>
                       <th className="num">Amount</th>
+                      {has('net') && <th className="num">Net</th>}
+                      {has('netEur') && <th className="num">Net EUR</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -357,6 +385,8 @@ export default function SummaryPage() {
                         </td>
                         <td className="num">{hours(g.minutes).toFixed(2)}</td>
                         <td className="num">{formatMoney(g.amount, statement.currency)}</td>
+                        {has('net') && <td className="num">{formatMoney(g.netAmount, statement.currency)}</td>}
+                        {has('netEur') && <td className="num">{formatMoney(g.netAmountEur, 'EUR')}</td>}
                       </tr>
                     ))}
                   </tbody>

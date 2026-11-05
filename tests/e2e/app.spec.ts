@@ -163,12 +163,15 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByTestId('include-non-billable').check()
   await expect(page.getByTestId('report-hours')).toHaveText((hoursBefore + 61 / 60).toFixed(2))
   await page.getByTestId('include-non-billable').uncheck()
-  // Money modes: the Upwork week shows as 520 gross, 468 net, 421.20 EUR net; the EUR total includes it.
-  await page.getByRole('radio', { name: 'Net EUR' }).click()
+  // Without a client filter everything is net in EUR: the Upwork week counts as 421.20. With the Upwork client
+  // selected, gross (520), net (468) and net EUR stand side by side.
   await expect(page.getByRole('cell', { name: /Northwind Supply/ }).first().locator('xpath=following-sibling::td[2]')).toHaveText('€421.20')
-  await page.getByRole('radio', { name: 'Net', exact: true }).click()
-  await expect(page.getByRole('cell', { name: /Northwind Supply/ }).first().locator('xpath=following-sibling::td[2]')).toHaveText(/468\.00/)
-  await page.getByRole('radio', { name: 'Gross' }).click()
+  await page.getByLabel('Client').selectOption({ label: 'Northwind Supply' })
+  const northwind = page.getByRole('cell', { name: /Northwind Supply/ }).first()
+  await expect(northwind.locator('xpath=following-sibling::td[2]')).toHaveText(/520\.00/)
+  await expect(northwind.locator('xpath=following-sibling::td[3]')).toHaveText(/468\.00/)
+  await expect(northwind.locator('xpath=following-sibling::td[4]')).toHaveText('€421.20')
+  await page.getByLabel('Client').selectOption({ label: 'All clients' })
   await page.getByRole('button', { name: 'Mark billed' }).first().click()
   await expect(page.getByText(/entries marked as billed/)).toBeVisible()
 
@@ -187,7 +190,7 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await expect(page.getByTestId('summary-hours')).toHaveText(/^\d+\.\d\d$/)
   await page.getByTestId('toggle-columns').click()
   await page.locator('.chips').getByRole('button', { name: /Rate/ }).click()
-  await expect(page.getByTestId('toggle-columns')).toHaveText(/7 of 9/)
+  await expect(page.getByTestId('toggle-columns')).toHaveText(/7 of 11/)
   await expect(page.getByTestId('preview-table').locator('thead th')).toHaveText(['Date', 'Time', 'Project', 'Description', 'Hours', 'Amount', 'Invoice'])
   await page.locator('.chips').getByRole('button', { name: /Category/ }).click()
   await expect(page.getByTestId('preview-table').locator('thead th')).toHaveText(['Date', 'Time', 'Project', 'Category', 'Description', 'Hours', 'Amount', 'Invoice'])

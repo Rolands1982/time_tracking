@@ -30,6 +30,8 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
     hours: { header: 'Hours', width: 34, align: 'right', cell: (r) => num(hours(r.minutes)) },
     rate: { header: 'Rate', width: 34, align: 'right', cell: (r) => (r.billable ? num(r.rate) : '') },
     amount: { header: 'Amount', width: 50, align: 'right', cell: (r) => (r.billable ? num(r.amount) : '–') },
+    net: { header: 'Net', width: 50, align: 'right', cell: (r) => (r.billable ? num(r.netAmount) : '–') },
+    netEur: { header: 'Net EUR', width: 50, align: 'right', cell: (r) => (r.billable ? (r.netAmountEur != null ? num(r.netAmountEur) : '?') : '–') },
     invoice: { header: 'Invoice', width: 'auto', cell: (r) => invoiceText(r, formatDate) },
   }
   const cols = st.columns.map((key) => ({ key, ...specs[key] }))
@@ -46,11 +48,30 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
   }
   body.push(
     cols.map((c, i) => {
-      const text = i === 0 ? 'Total' : c.key === 'hours' ? num(hours(st.minutes)) : c.key === 'amount' ? money(st.amount, st.currency) : ''
+      const text =
+        i === 0
+          ? 'Total'
+          : c.key === 'hours'
+            ? num(hours(st.minutes))
+            : c.key === 'amount'
+              ? money(st.amount, st.currency)
+              : c.key === 'net'
+                ? money(st.netAmount, st.currency)
+                : c.key === 'netEur'
+                  ? money(st.netAmountEur, 'EUR')
+                  : ''
       return { text, style: 'total', ...(c.align ? right : {}) }
     }),
   )
 
+  const stat = (label: string, value: string) => ({ stack: [{ text: label, style: 'statLabel' }, { text: value, style: 'statValue' }] })
+  const stats = [
+    stat('Total hours', num(hours(st.minutes))),
+    stat('Total amount', money(st.amount, st.currency)),
+    ...(st.columns.includes('net') ? [stat('Net after fees', money(st.netAmount, st.currency))] : []),
+    ...(st.columns.includes('netEur') ? [stat(st.eurMissing ? 'Net EUR (partly estimated)' : 'Net EUR', money(st.netAmountEur, 'EUR'))] : []),
+    stat('Entries', String(st.count)),
+  ]
   const content: Content[] = [
     { text: 'Time summary', style: 'eyebrow' },
     { text: st.clientName, style: 'title' },
@@ -58,14 +79,8 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
     { text: `${FILTER_LABELS[st.filter]} · generated ${formatDate(st.generatedAt)}`, color: GREY, margin: [0, 0, 0, 14] },
     {
       table: {
-        widths: ['*', '*', '*'],
-        body: [
-          [
-            { stack: [{ text: 'Total hours', style: 'statLabel' }, { text: num(hours(st.minutes)), style: 'statValue' }] },
-            { stack: [{ text: 'Total amount', style: 'statLabel' }, { text: money(st.amount, st.currency), style: 'statValue' }] },
-            { stack: [{ text: 'Entries', style: 'statLabel' }, { text: String(st.count), style: 'statValue' }] },
-          ],
-        ],
+        widths: stats.map(() => '*'),
+        body: [stats],
       },
       layout: { hLineWidth: () => 0, vLineWidth: () => 0, fillColor: () => '#f3f4f6', paddingTop: () => 8, paddingBottom: () => 8, paddingLeft: () => 10, paddingRight: () => 10 },
       margin: [0, 0, 0, 16],
@@ -89,14 +104,23 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
     })
   }
   if (st.byProject.length > 1) {
+    const withNet = st.columns.includes('net')
+    const withEur = st.columns.includes('netEur')
     content.push({ text: 'By project', style: 'h2', margin: [0, 18, 0, 6] })
     content.push({
       table: {
         headerRows: 1,
-        widths: ['*', 50, 40, 70],
+        widths: ['*', 50, 40, 70, ...(withNet ? [70] : []), ...(withEur ? [70] : [])],
         body: [
-          [head('Project'), head('Entries', 'right'), head('Hours', 'right'), head('Amount', 'right')],
-          ...st.byProject.map((g) => [g.name, { text: String(g.count), ...right }, { text: num(hours(g.minutes)), ...right }, { text: money(g.amount, st.currency), ...right }]),
+          [head('Project'), head('Entries', 'right'), head('Hours', 'right'), head('Amount', 'right'), ...(withNet ? [head('Net', 'right')] : []), ...(withEur ? [head('Net EUR', 'right')] : [])],
+          ...st.byProject.map((g) => [
+            g.name,
+            { text: String(g.count), ...right },
+            { text: num(hours(g.minutes)), ...right },
+            { text: money(g.amount, st.currency), ...right },
+            ...(withNet ? [{ text: money(g.netAmount, st.currency), ...right }] : []),
+            ...(withEur ? [{ text: money(g.netAmountEur, 'EUR'), ...right }] : []),
+          ]),
         ],
       },
       layout: { hLineWidth: (i: number) => (i <= 1 ? 0.8 : 0.3), vLineWidth: () => 0, hLineColor: () => LINE, paddingTop: () => 3, paddingBottom: () => 3 },

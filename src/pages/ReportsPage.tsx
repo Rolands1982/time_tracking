@@ -4,19 +4,23 @@ import { Link } from 'react-router-dom'
 import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
-import { groupBy, isBillable, setBilled, totals } from '../db/repo'
+import { groupBy, isBillable, isPlatformClient, setBilled, totals, type Totals } from '../db/repo'
 import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
-import { amountOf, DEFAULT_MONEY_MODE, estimatedIn, MONEY_MODES, type MoneyMode } from '../lib/moneyMode'
 import { periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../lib/time'
 
+/**
+ * Money in the reports: without a platform client selected everything is net in EUR, so direct and Upwork
+ * work add up (direct work as invoiced; Upwork work after its fee, at the rate of the payout that paid it or
+ * the ECB rate of the day until then). With an Upwork client selected, gross, net and net EUR stand side by
+ * side in that client's currency.
+ */
 export default function ReportsPage() {
   const [period, setPeriod] = useState<PeriodState>(() => ({ period: 'month', anchor: todayIso().slice(0, 7), custom: { from: '', to: '' } }))
   const [clientId, setClientId] = useState<number | undefined>()
   const [invoiceDate, setInvoiceDate] = useState(todayIso())
-  const [money, setMoney] = useState<MoneyMode>(DEFAULT_MONEY_MODE)
   const { clients, projects, clientName, projectName, clientById } = useLookups()
   const settings = useSettings()
   const toast = useToast()
@@ -42,8 +46,9 @@ export default function ReportsPage() {
     [entries, clientId, includeNonBillable],
   )
   const t = useMemo(() => totals(filtered), [filtered])
-  const baseCurrency = (clientId != null && clientById.get(clientId)?.currency) || settings.defaultCurrency
-  const currency = money === 'eur' ? 'EUR' : baseCurrency
+  const client = clientId != null ? clientById.get(clientId) : undefined
+  const platform = isPlatformClient(client)
+  const currency = client?.currency || settings.defaultCurrency
 
   const byClient = useMemo(() => groupBy(filtered, (e) => e.clientId), [filtered])
   const byProject = useMemo(() => groupBy(filtered, (e) => `${e.clientId}:${e.projectId ?? ''}`), [filtered])
@@ -73,6 +78,9 @@ export default function ReportsPage() {
     downloadBlob(buf, `Statement_${who}_${periodLabel.replace(/[^\w-]+/g, '_')}_${stamp()}.xlsx`, XLSX_MIME)
   }
 
+  const eurNotes = (x: Totals) => [x.estimated > 0 ? `${x.estimated} estimated` : '', x.eurMissing > 0 ? `${x.eurMissing} without a rate` : ''].filter(Boolean)
+  const awaiting = t.feeEstimated > 0 ? `${t.feeEstimated} awaiting Upwork invoice` : ''
+
   return (
     <>
       <div className="topbar">
@@ -96,13 +104,6 @@ export default function ReportsPage() {
           <input type="checkbox" checked={includeNonBillable} onChange={(e) => setIncludeNonBillable(e.target.checked)} data-testid="include-non-billable" />
           Include non-billable hours
         </label>
-        <div className="segmented" role="radiogroup" aria-label="Money">
-          {MONEY_MODES.map((m) => (
-            <button key={m.key} className={money === m.key ? 'active' : ''} onClick={() => setMoney(m.key)} role="radio" aria-checked={money === m.key}>
-              {m.label}
-            </button>
-          ))}
-        </div>
         <div className="stat-grid">
           <div className="stat">
             <div className="label">{includeNonBillable ? 'Hours' : 'Billed hours'}</div>
@@ -112,19 +113,34 @@ export default function ReportsPage() {
             {t.nonBillableMin > 0 && <div className="label">{(t.nonBillableMin / 60).toFixed(2)} non-billable</div>}
             {t.billedMin !== t.durationMin && <div className="label">actual {(t.durationMin / 60).toFixed(2)}</div>}
           </div>
+          {platform && (
+            <>
+              <div className="stat">
+                <div className="label">Gross</div>
+                <div className="value">{formatMoney(t.amount, currency)}</div>
+              </div>
+              <div className="stat">
+                <div className="label">Net after fees</div>
+                <div className="value">{formatMoney(t.netAmount, currency)}</div>
+                {t.feeAmount > 0 && <div className="label">fees {formatMoney(t.feeAmount, currency)}</div>}
+              </div>
+            </>
+          )}
           <div className="stat">
-            <div className="label">{money === 'gross' ? 'Amount' : money === 'net' ? 'Net after fees' : 'Net in EUR'}</div>
+            <div className="label">Net EUR</div>
             <div className="value" data-testid="report-amount">
-              {formatMoney(amountOf(t, money), currency)}
+              {formatMoney(t.netAmountEur, 'EUR')}
             </div>
-            {money !== 'gross' && t.feeAmount > 0 && <div className="label">fees {formatMoney(t.feeAmount, baseCurrency)}</div>}
-            {money === 'eur' && t.eurMissing > 0 && <div className="label">{t.eurMissing} entries without a rate</div>}
-            {estimatedIn(t, money) > 0 && <div className="label">{estimatedIn(t, money)} estimated</div>}
+            {eurNotes(t).map((s) => (
+              <div className="label" key={s}>
+                {s}
+              </div>
+            ))}
           </div>
           <div className="stat">
-            <div className="label">Not billed (net)</div>
-            <div className="value">{formatMoney(t.unbilledAmount, baseCurrency)}</div>
-            {t.feeEstimated > 0 && <div className="label">{t.feeEstimated} awaiting Upwork invoice</div>}
+            <div className="label">{platform ? 'Not billed (net)' : 'Not billed (net EUR)'}</div>
+            <div className="value">{platform ? formatMoney(t.unbilledAmount, currency) : formatMoney(t.unbilledAmountEur, 'EUR')}</div>
+            {awaiting && <div className="label">{awaiting}</div>}
           </div>
         </div>
         <Link className="btn block" to={{ pathname: '/summary', search: new URLSearchParams({ ...periodToParams(period), ...(clientId != null ? { client: String(clientId) } : {}) }).toString() }}>
@@ -147,7 +163,7 @@ export default function ReportsPage() {
                 <tr>
                   <th>Client</th>
                   <th className="num">Hours</th>
-                  <th className="num">Amount</th>
+                  <th className="num">{platform ? 'Net' : 'Net EUR'}</th>
                   <th />
                 </tr>
               </thead>
@@ -160,7 +176,7 @@ export default function ReportsPage() {
                         {clientName(cid)} <span className="muted small">({ut.count})</span>
                       </td>
                       <td className="num">{(ut.durationMin / 60).toFixed(2)}</td>
-                      <td className="num">{formatMoney(ut.netAmount, clientById.get(cid)?.currency)}</td>
+                      <td className="num">{platform ? formatMoney(ut.netAmount, currency) : formatMoney(ut.netAmountEur, 'EUR')}</td>
                       <td className="num">
                         {manual(list).length > 0 ? (
                           <button className="btn small" onClick={() => markBilled(cid)}>
@@ -179,41 +195,43 @@ export default function ReportsPage() {
         )}
       </div>
 
-      <SummaryTable title="By client" rows={[...byClient.entries()].map(([k, list]) => [clientName(k), list] as const)} currency={currency} openCurrency={baseCurrency} money={money} />
+      <SummaryTable title="By client" rows={[...byClient.entries()].map(([k, list]) => [clientName(k), list] as const)} platform={platform} currency={currency} />
       <SummaryTable
         title="By project"
         rows={[...byProject.entries()].map(([k, list]) => {
           const [c, p] = k.split(':')
           return [`${clientName(Number(c))}${p ? ` · ${projectName(Number(p))}` : ''}`, list] as const
         })}
+        platform={platform}
         currency={currency}
-        openCurrency={baseCurrency}
-        money={money}
       />
       <SummaryTable
         title="By month"
         rows={[...byMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, list]) => [monthLabel(k), list] as const)}
+        platform={platform}
         currency={currency}
-        openCurrency={baseCurrency}
-        money={money}
       />
       <p className="muted small">
         Hours and amounts are on the billed basis (start snapped to 10 minutes, 15-minute steps); actual minutes are shown
         where they differ. Non-billable work {includeNonBillable ? 'is counted in the hours but never in the amounts' : 'is left out'}.{' '}
-        {money === 'gross'
-          ? `Gross as invoiced, before platform fees. Totals per client use that client's currency; the overall figures use ${currency}.`
-          : money === 'net'
-            ? `Net = gross minus platform fees (Upwork); direct work has no fee. Figures in ${currency}. Upwork work counts as billed once its weekly invoice is in the ledger; until then its fee, and so its net, is an estimate.`
-            : 'Net in EUR uses the exchange rate of the payout that paid each entry; entries not paid out yet use the ECB rate of the day.'}
-        {estimatedIn(t, money) > 0 && ` ${estimatedIn(t, money)} entries are still estimates.`}
+        {platform
+          ? `Gross as invoiced by Upwork, net after its fee, and net in EUR at the rate of the payout that paid each entry (the ECB rate of the day until it is paid out). Work counts as billed once Upwork's weekly invoice is in the ledger; until then its fee, and so its net, is an estimate.`
+          : 'Amounts are net in EUR so that all clients add up: direct work as invoiced, Upwork work after its fee at the rate of the payout that paid it (the ECB rate of the day until then). Select an Upwork client to see gross, net and EUR side by side.'}
+        {t.estimated > 0 && ` ${t.estimated} entries are still estimates.`}
       </p>
     </>
   )
 }
 
-function SummaryTable({ title, rows, currency, openCurrency, money }: { title: string; rows: readonly (readonly [string, TimeEntry[]])[]; currency: string; openCurrency: string; money: MoneyMode }) {
+/** Per-group totals: net EUR and what is open, or gross / net / net EUR for a platform client. */
+function SummaryTable({ title, rows, platform, currency }: { title: string; rows: readonly (readonly [string, TimeEntry[]])[]; platform: boolean; currency: string }) {
   if (!rows.length) return null
   const all = totals(rows.flatMap(([, l]) => l))
+  const cells = (t: Totals) =>
+    platform
+      ? [formatMoney(t.amount, currency), formatMoney(t.netAmount, currency), formatMoney(t.netAmountEur, 'EUR')]
+      : [formatMoney(t.netAmountEur, 'EUR'), t.unbilledAmountEur ? formatMoney(t.unbilledAmountEur, 'EUR') : '–']
+  const heads = platform ? ['Gross', 'Net', 'Net EUR'] : ['Net EUR', 'Open']
   return (
     <>
       <h2>{title}</h2>
@@ -223,8 +241,11 @@ function SummaryTable({ title, rows, currency, openCurrency, money }: { title: s
             <tr>
               <th>{title.replace('By ', '')}</th>
               <th className="num">Hours</th>
-              <th className="num">Amount</th>
-              <th className="num">Open</th>
+              {heads.map((h) => (
+                <th className="num" key={h}>
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -234,16 +255,22 @@ function SummaryTable({ title, rows, currency, openCurrency, money }: { title: s
                 <tr key={label}>
                   <td>{label}</td>
                   <td className="num">{formatDuration(t.billedMin)}</td>
-                  <td className="num">{formatMoney(amountOf(t, money), currency)}</td>
-                  <td className="num">{t.unbilledAmount ? formatMoney(t.unbilledAmount, openCurrency) : '–'}</td>
+                  {cells(t).map((v, i) => (
+                    <td className="num" key={i}>
+                      {v}
+                    </td>
+                  ))}
                 </tr>
               )
             })}
             <tr className="total">
               <td>Total</td>
               <td className="num">{formatDuration(all.billedMin)}</td>
-              <td className="num">{formatMoney(amountOf(all, money), currency)}</td>
-              <td className="num">{all.unbilledAmount ? formatMoney(all.unbilledAmount, openCurrency) : '–'}</td>
+              {cells(all).map((v, i) => (
+                <td className="num" key={i}>
+                  {v}
+                </td>
+              ))}
             </tr>
           </tbody>
         </table>

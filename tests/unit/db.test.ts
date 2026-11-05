@@ -59,7 +59,18 @@ describe('entries', () => {
     // Platform work: billed and open money are net of the fee; an entry Upwork has not invoiced yet is a fee estimate.
     const upwork = (over: Partial<TimeEntry>): TimeEntry =>
       ({ date: '2026-10-12', startTime: '00:00', endTime: '01:00', durationMin: 60, clientId: 1, hourlyRate: 100, amount: 100, feeAmount: 10, netAmount: 90, comments: '', isBilled: false, source: 'upwork', createdAt: '', updatedAt: '', ...over }) as TimeEntry
-    expect(totals([upwork({}), upwork({ isBilled: true, invoiceDate: '2026-10-18' })])).toMatchObject({ amount: 200, netAmount: 180, feeAmount: 20, billedAmount: 90, unbilledAmount: 90, feeEstimated: 1 })
+    expect(totals([upwork({ netAmountEur: 81 }), upwork({ isBilled: true, invoiceDate: '2026-10-18', netAmountEur: 80 }), upwork({ id: 3 })])).toMatchObject({
+      amount: 300,
+      netAmount: 270,
+      feeAmount: 30,
+      billedAmount: 90,
+      unbilledAmount: 180,
+      billedAmountEur: 80,
+      unbilledAmountEur: 81,
+      netAmountEur: 161,
+      eurMissing: 1,
+      feeEstimated: 2,
+    })
   })
 
   it('resolves the hourly rate by date from the client rate periods', async () => {
