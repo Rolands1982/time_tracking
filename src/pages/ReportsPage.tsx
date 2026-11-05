@@ -56,6 +56,11 @@ export default function ReportsPage() {
   const unbilledByClient = useMemo(() => groupBy(filtered.filter((e) => !e.isBilled), (e) => e.clientId), [filtered])
 
   const periodLabel = labelFor(period)
+  // The filter offers the clients that have entries in the period (plus the one selected, so the choice stays valid).
+  const clientOptions = useMemo(() => {
+    const present = new Set(entries.map((e) => e.clientId))
+    return clients.filter((c) => present.has(c.id!) || c.id === clientId)
+  }, [entries, clients, clientId])
 
   // Upwork bills its own work with the weekly invoice; only direct work is marked billed by hand.
   const manual = (list: TimeEntry[]) => list.filter((e) => e.source !== 'upwork')
@@ -94,7 +99,7 @@ export default function ReportsPage() {
         <PeriodPicker value={period} onChange={setPeriod} />
         <select value={clientId ?? ''} onChange={(e) => setClientId(e.target.value ? Number(e.target.value) : undefined)} aria-label="Client">
           <option value="">All clients</option>
-          {clients.map((c) => (
+          {clientOptions.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
@@ -174,16 +179,15 @@ export default function ReportsPage() {
                     <tr key={cid}>
                       <td>
                         {clientName(cid)} <span className="muted small">({ut.count})</span>
+                        {manual(list).length === 0 && <div className="muted small">billed weekly by Upwork</div>}
                       </td>
                       <td className="num">{(ut.durationMin / 60).toFixed(2)}</td>
                       <td className="num">{platform ? formatMoney(ut.netAmount, currency) : formatMoney(ut.netAmountEur, 'EUR')}</td>
                       <td className="num">
-                        {manual(list).length > 0 ? (
+                        {manual(list).length > 0 && (
                           <button className="btn small" onClick={() => markBilled(cid)}>
                             Mark billed
                           </button>
-                        ) : (
-                          <span className="muted small">Upwork invoices weekly</span>
                         )}
                       </td>
                     </tr>
@@ -223,15 +227,45 @@ export default function ReportsPage() {
   )
 }
 
-/** Per-group totals: net EUR and what is open, or gross / net / net EUR for a platform client. */
+/**
+ * Per-group totals: a table with net EUR and what is open, or, for a platform client, one block per group with
+ * hours, gross, net and net EUR in a mini grid (four money columns do not fit a phone-width table).
+ */
 function SummaryTable({ title, rows, platform, currency }: { title: string; rows: readonly (readonly [string, TimeEntry[]])[]; platform: boolean; currency: string }) {
   if (!rows.length) return null
   const all = totals(rows.flatMap(([, l]) => l))
-  const cells = (t: Totals) =>
-    platform
-      ? [formatMoney(t.amount, currency), formatMoney(t.netAmount, currency), formatMoney(t.netAmountEur, 'EUR')]
-      : [formatMoney(t.netAmountEur, 'EUR'), t.unbilledAmountEur ? formatMoney(t.unbilledAmountEur, 'EUR') : '–']
-  const heads = platform ? ['Gross', 'Net', 'Net EUR'] : ['Net EUR', 'Open']
+  if (platform) {
+    const figures = (t: Totals) => [
+      ['Hours', formatDuration(t.billedMin)],
+      ['Gross', formatMoney(t.amount, currency)],
+      ['Net', formatMoney(t.netAmount, currency)],
+      ['Net EUR', formatMoney(t.netAmountEur, 'EUR')],
+    ]
+    const block = (label: string, t: Totals, total = false) => (
+      <div className={`group-row${total ? ' total' : ''}`} key={label} data-testid="report-group">
+        <div className="group-name">{label}</div>
+        <div className="mini-grid">
+          {figures(t).map(([l, v]) => (
+            <div key={l}>
+              <span className="label">{l}</span>
+              <span className="value">{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+    return (
+      <>
+        <h2>{title}</h2>
+        <div className="card group-list">
+          {rows.map(([label, list]) => block(label, totals(list)))}
+          {rows.length > 1 && block('Total', all, true)}
+        </div>
+      </>
+    )
+  }
+  const cells = (t: Totals) => [formatMoney(t.netAmountEur, 'EUR'), t.unbilledAmountEur ? formatMoney(t.unbilledAmountEur, 'EUR') : '–']
+  const heads = ['Net EUR', 'Open']
   return (
     <>
       <h2>{title}</h2>

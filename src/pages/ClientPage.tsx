@@ -220,11 +220,23 @@ function ProjectsCard({ client }: { client: Client }) {
     <div className="card stack">
       <h2>Projects</h2>
       {projects.length === 0 && <p className="muted small">No projects yet. Entries can be saved without a project.</p>}
+      {projects.length > 0 && <p className="muted small">A project can carry a rate of its own; empty means the client's rate applies.</p>}
       {projects.map((p) => (
         <div className="row" key={p.id}>
           <span className="grow" style={{ textDecoration: p.archived ? 'line-through' : undefined }}>
             {p.name}
           </span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0"
+            style={{ width: '6.5em' }}
+            value={p.defaultRate ?? ''}
+            placeholder={String(rateFor(client, todayIso()))}
+            aria-label={`Rate for ${p.name}`}
+            onChange={(e) => updateProject(p, { defaultRate: e.target.value === '' ? undefined : Number(e.target.value) })}
+          />
           <button className="btn small" onClick={() => updateProject(p, { archived: !p.archived })}>
             {p.archived ? 'Restore' : 'Archive'}
           </button>

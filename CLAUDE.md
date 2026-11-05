@@ -82,7 +82,11 @@ Conventions that matter:
   `summaryColumnsPlatform`); the master export stays gross.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
-  is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.
+  is what new entries suggest; a project may carry a `defaultRate` of its own, and `suggestedRate(client, project, date)`
+  (timer and entry form) prefers it. Saved entries keep the rate they were saved with.
+- Clients screen groups **Current** (direct, not archived), **Upwork** (`isPlatformClient()`) and **Archive**; the timer's
+  picker offers current clients only (`directOnly`), and the Entries/Reports client filters list only clients with
+  entries in the shown period.
 - Clients hold the invoice data (`businessName`, `registrationNumber`, `vatNumber`, `vatApplicable`, `address`);
   invoices will read it from there.
 - **Billing normalisation** (`src/lib/rounding.ts`): records keep real `startTime`/`endTime`/`durationMin`. New

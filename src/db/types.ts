@@ -51,7 +51,7 @@ export interface Project extends Synced {
   id?: number
   clientId: number
   name: string
-  /** Legacy: rates are per client and period now; kept so old backups still load. */
+  /** Optional rate of this project; when set it overrides the client's rate for new entries (see suggestedRate()). */
   defaultRate?: number
   archived?: boolean
   /** Set when the project is an Upwork contract. */

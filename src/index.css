@@ -214,13 +214,15 @@ p {
 }
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* As many per row as fit a money value like "US$1,946.66"; wraps on phones instead of overflowing. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 8px;
 }
 .stat {
   background: var(--surface-2);
   border-radius: 10px;
   padding: 10px;
+  min-width: 0;
 }
 .stat .label {
   font-size: 0.75rem;
@@ -282,6 +284,41 @@ th.num {
 tr.total td {
   font-weight: 700;
   border-bottom: none;
+}
+/* Report groups with several money columns (gross / net / net EUR): one block per row, figures in a mini grid,
+   so nothing is cut off on a phone. */
+.group-list .group-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.group-list .group-row:last-child {
+  border-bottom: none;
+}
+.group-list .group-name {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.group-list .group-row.total .group-name {
+  font-weight: 700;
+}
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 6px 10px;
+}
+.mini-grid .label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.mini-grid .value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.group-list .group-row.total .mini-grid .value {
+  font-weight: 700;
 }
 
 /* ------------------------------------------------------------ forms */
