@@ -191,6 +191,8 @@ export interface Settings {
   roundingMode?: 'billing' | 'exact'
   /** Columns shown in customer summaries (keys from src/lib/statement.ts); unset = default set. */
   summaryColumns?: string[]
+  /** Column choice for Upwork clients (gross, net and net EUR by default). */
+  summaryColumnsPlatform?: string[]
   /** Reports: count non-billable entries in the hours (never in the amounts). */
   reportsIncludeNonBillable?: boolean
   /** E-mail preferences for documents sent from the app. */

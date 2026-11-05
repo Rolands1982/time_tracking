@@ -4,13 +4,13 @@
  * or PDF (pdf/statementPdf.ts).
  */
 import type { Client, Project, TimeEntry } from '../db/types'
-import { billedMinutes, isBillable } from '../db/repo'
+import { billedMinutes, isBillable, netEurOf, netOf } from '../db/repo'
 import { rangeLabel } from './period'
 import { todayIso } from './time'
 
 export type StatementFilter = 'all' | 'unbilled' | 'billed'
 
-export type StatementColumn = 'date' | 'time' | 'project' | 'category' | 'description' | 'hours' | 'rate' | 'amount' | 'invoice'
+export type StatementColumn = 'date' | 'time' | 'project' | 'category' | 'description' | 'hours' | 'rate' | 'amount' | 'net' | 'netEur' | 'invoice'
 
 /** Every column a summary can show, in document order. */
 export const STATEMENT_COLUMNS: { key: StatementColumn; label: string }[] = [
@@ -22,16 +22,20 @@ export const STATEMENT_COLUMNS: { key: StatementColumn; label: string }[] = [
   { key: 'hours', label: 'Hours' },
   { key: 'rate', label: 'Rate' },
   { key: 'amount', label: 'Amount' },
+  { key: 'net', label: 'Net' },
+  { key: 'netEur', label: 'Net EUR' },
   { key: 'invoice', label: 'Invoice' },
 ]
 
 export const DEFAULT_COLUMNS: StatementColumn[] = ['date', 'time', 'project', 'description', 'hours', 'rate', 'amount', 'invoice']
+/** Platform clients (Upwork): the work is billed gross, the fee comes off, and the bank receives EUR. No times: the rows are daily. */
+export const PLATFORM_DEFAULT_COLUMNS: StatementColumn[] = ['date', 'project', 'description', 'hours', 'rate', 'amount', 'net', 'netEur', 'invoice']
 
 /** Keep only known keys, in document order; falls back to the default set when nothing is left. */
-export function normalizeColumns(keys: readonly string[] | undefined): StatementColumn[] {
-  const wanted = new Set(keys ?? DEFAULT_COLUMNS)
+export function normalizeColumns(keys: readonly string[] | undefined, fallback: readonly StatementColumn[] = DEFAULT_COLUMNS): StatementColumn[] {
+  const wanted = new Set(keys ?? fallback)
   const cols = STATEMENT_COLUMNS.map((c) => c.key).filter((k) => wanted.has(k))
-  return cols.length ? cols : [...DEFAULT_COLUMNS]
+  return cols.length ? cols : [...fallback]
 }
 
 export interface StatementRow {
@@ -48,6 +52,9 @@ export interface StatementRow {
   comments: string
   rate: number
   amount: number
+  /** After the platform fee (equal to amount for direct work), and in EUR when a rate is known. */
+  netAmount: number
+  netAmountEur?: number
   billable: boolean
   isBilled: boolean
   invoiceDate?: string
@@ -59,6 +66,8 @@ export interface StatementGroup {
   count: number
   minutes: number
   amount: number
+  netAmount: number
+  netAmountEur: number
 }
 
 export interface Statement {
@@ -79,6 +88,10 @@ export interface Statement {
   minutes: number
   actualMin: number
   amount: number
+  netAmount: number
+  netAmountEur: number
+  /** Billable rows whose EUR value is unknown (no rate yet). */
+  eurMissing: number
   /** Work listed but never invoiced (billable === false). */
   nonBillableCount: number
   nonBillableMin: number
@@ -120,6 +133,8 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
       comments: e.comments,
       rate: e.hourlyRate,
       amount: billable ? e.amount : 0,
+      netAmount: billable ? netOf(e) : 0,
+      netAmountEur: billable ? netEurOf(e) : 0,
       billable,
       isBilled: e.isBilled,
       invoiceDate: e.invoiceDate,
@@ -143,6 +158,9 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
     minutes: 0,
     actualMin: 0,
     amount: 0,
+    netAmount: 0,
+    netAmountEur: 0,
+    eurMissing: 0,
     nonBillableCount: 0,
     nonBillableMin: 0,
     byProject: [],
@@ -158,13 +176,26 @@ export function buildStatement({ client, entries, projects, from, to, filter = '
     st.minutes += r.minutes
     st.actualMin += r.actualMin
     st.amount += r.amount
-    const g = groups.get(r.project) ?? { name: r.project || '(no project)', count: 0, minutes: 0, amount: 0 }
+    st.netAmount += r.netAmount
+    if (r.netAmountEur != null) st.netAmountEur += r.netAmountEur
+    else st.eurMissing++
+    const g = groups.get(r.project) ?? { name: r.project || '(no project)', count: 0, minutes: 0, amount: 0, netAmount: 0, netAmountEur: 0 }
     g.count++
     g.minutes += r.minutes
     g.amount += r.amount
+    g.netAmount += r.netAmount
+    g.netAmountEur += r.netAmountEur ?? 0
     groups.set(r.project, g)
   }
-  st.amount = Math.round(st.amount * 100) / 100
+  const round2 = (n: number) => Math.round(n * 100) / 100
+  st.amount = round2(st.amount)
+  st.netAmount = round2(st.netAmount)
+  st.netAmountEur = round2(st.netAmountEur)
+  for (const g of groups.values()) {
+    g.amount = round2(g.amount)
+    g.netAmount = round2(g.netAmount)
+    g.netAmountEur = round2(g.netAmountEur)
+  }
   st.byProject = [...groups.values()].sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name))
   return st
 }

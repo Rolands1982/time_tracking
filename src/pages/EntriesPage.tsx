@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
-import { useLookups, useSettings } from '../db/hooks'
+import { useLookups } from '../db/hooks'
 import { billedMinutes, compareEntries, groupBy, isBillable, totals } from '../db/repo'
 import { db } from '../db/schema'
 import { addMonths, formatDateLong, formatDuration, formatMoney, monthLabel, todayIso } from '../lib/time'
@@ -13,8 +13,7 @@ export default function EntriesPage() {
   const [clientId, setClientId] = useState<number | undefined>()
   const [billed, setBilled] = useState<BilledFilter>('all')
   const [search, setSearch] = useState('')
-  const { clients, clientName, projectName, clientById } = useLookups()
-  const settings = useSettings()
+  const { clients, clientName, projectName } = useLookups()
 
   const entries = useLiveQuery(
     () => db.entries.where('date').between(`${month}-01`, `${month}-31`, true, true).toArray(),
@@ -32,7 +31,6 @@ export default function EntriesPage() {
   }, [entries, clientId, billed, search, projectName])
   const t = useMemo(() => totals(filtered), [filtered])
   const byDay = useMemo(() => groupBy(filtered, (e) => e.date), [filtered])
-  const currency = (clientId != null && clientById.get(clientId)?.currency) || settings.defaultCurrency
 
   return (
     <>
@@ -82,9 +80,10 @@ export default function EntriesPage() {
             {t.billedMin !== t.durationMin && <div className="label">actual {formatDuration(t.durationMin)}</div>}
           </div>
           <div className="stat">
-            <div className="label">{t.feeAmount > 0 ? 'Net amount' : 'Amount'}</div>
-            <div className="value">{formatMoney(t.netAmount, currency)}</div>
-            {t.feeEstimated > 0 && <div className="label">{t.feeEstimated} estimated</div>}
+            <div className="label">Net EUR</div>
+            <div className="value">{formatMoney(t.netAmountEur, 'EUR')}</div>
+            {t.estimated > 0 && <div className="label">{t.estimated} estimated</div>}
+            {t.eurMissing > 0 && <div className="label">{t.eurMissing} without a rate</div>}
           </div>
         </div>
       </div>

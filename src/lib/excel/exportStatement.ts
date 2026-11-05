@@ -19,6 +19,8 @@ interface ColumnSpec {
   wrap?: boolean
 }
 
+const EUR = '#,##0.00 "EUR"'
+
 function columnSpecs(st: Statement): Record<StatementColumn, ColumnSpec> {
   const money = `#,##0.00 "${st.currency}"`
   return {
@@ -30,6 +32,8 @@ function columnSpecs(st: Statement): Record<StatementColumn, ColumnSpec> {
     hours: { header: 'Hours', width: 8, value: (r) => hours(r.minutes), numFmt: '0.00' },
     rate: { header: 'Rate', width: 10, value: (r) => (r.billable ? r.rate : null), numFmt: money },
     amount: { header: 'Amount', width: 14, value: (r) => (r.billable ? r.amount : null), numFmt: money },
+    net: { header: 'Net', width: 14, value: (r) => (r.billable ? r.netAmount : null), numFmt: money },
+    netEur: { header: 'Net EUR', width: 14, value: (r) => (r.billable ? (r.netAmountEur ?? null) : null), numFmt: EUR },
     invoice: { header: 'Invoice', width: 16, value: (r) => invoiceText(r, formatDate) },
   }
 }
@@ -63,6 +67,8 @@ export function buildStatementWorkbook(st: Statement): ExcelJS.Workbook {
   }
   stat('Total hours', hours(st.minutes), '0.00').getCell(4).font = { bold: true, size: 12 }
   stat('Total amount', st.amount, money).getCell(4).font = { bold: true, size: 12 }
+  if (st.columns.includes('net')) stat('Net after fees', st.netAmount, money)
+  if (st.columns.includes('netEur')) stat(st.eurMissing ? `Net EUR (${st.eurMissing} entries without a rate yet)` : 'Net EUR', st.netAmountEur, EUR)
   stat('Entries', st.count)
   if (st.nonBillableCount) stat('Non-billable hours (not charged)', hours(st.nonBillableMin), '0.00')
   ws.addRow([])
@@ -90,23 +96,29 @@ export function buildStatementWorkbook(st: Statement): ExcelJS.Workbook {
   }
   subtotal('hours', hours(st.minutes + st.nonBillableMin))
   subtotal('amount', st.amount)
+  subtotal('net', st.netAmount)
+  subtotal('netEur', st.netAmountEur)
   const total = ws.addRow(totalValues)
   total.font = { bold: true }
   total.fill = TOTAL_FILL
   if (colIndex('hours')) total.getCell(colIndex('hours')).numFmt = '0.00'
   if (colIndex('amount')) total.getCell(colIndex('amount')).numFmt = money
+  if (colIndex('net')) total.getCell(colIndex('net')).numFmt = money
+  if (colIndex('netEur')) total.getCell(colIndex('netEur')).numFmt = EUR
   ws.autoFilter = { from: { row: header.number, column: 1 }, to: { row: lastDataRow, column: cols.length } }
   ws.views = [{ state: 'frozen', ySplit: header.number }]
 
   if (st.byProject.length > 1) {
     ws.addRow([])
-    const h = ws.addRow(['By project', null, 'Hours', 'Amount'])
+    const extra = [st.columns.includes('net') ? ['Net', money] : null, st.columns.includes('netEur') ? ['Net EUR', EUR] : null].filter((x): x is string[] => x != null)
+    const h = ws.addRow(['By project', null, 'Hours', 'Amount', ...extra.map(([label]) => label)])
     h.font = { bold: true }
     h.fill = HEADER_FILL
     for (const g of st.byProject) {
-      const r = ws.addRow([g.name, null, hours(g.minutes), g.amount])
+      const r = ws.addRow([g.name, null, hours(g.minutes), g.amount, ...extra.map(([label]) => (label === 'Net' ? g.netAmount : g.netAmountEur))])
       r.getCell(3).numFmt = '0.00'
       r.getCell(4).numFmt = money
+      extra.forEach(([, fmt], i) => (r.getCell(5 + i).numFmt = fmt))
     }
   }
   return wb

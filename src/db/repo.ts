@@ -309,9 +309,11 @@ export interface Totals {
   nonBillableCount: number
   /** Money: non-billable entries never count, whatever amount they carry. amount is the gross as invoiced. */
   amount: number
-  /** Billed and open money on the net basis (after platform fees; direct work has none). */
+  /** Billed and open money on the net basis (after platform fees; direct work has none), and the same in EUR. */
   billedAmount: number
   unbilledAmount: number
+  billedAmountEur: number
+  unbilledAmountEur: number
   unbilledMin: number
   /** Platform fees and what is left after them, in the entries' currency; EUR after the exchange rate. */
   feeAmount: number
@@ -329,8 +331,19 @@ export function netOf(e: TimeEntry): number {
   return e.netAmount ?? e.amount - (e.feeAmount ?? 0)
 }
 
+/** The net in EUR, or undefined while no rate is known (a direct client in another currency, a row without a rate). */
+export function netEurOf(e: TimeEntry): number | undefined {
+  if (e.netAmountEur != null) return e.netAmountEur
+  return (e.currency ?? 'EUR') === 'EUR' && e.feeAmount == null ? netOf(e) : undefined
+}
+
+/** A client whose hours and money come from a platform (Upwork): shown gross, net and in EUR. */
+export function isPlatformClient(c: Pick<Client, 'platform' | 'upworkClientId'> | undefined): boolean {
+  return c?.platform === 'upwork' || c?.upworkClientId != null
+}
+
 export function totals(entries: TimeEntry[]): Totals {
-  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0, feeEstimated: 0 }
+  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, billedAmountEur: 0, unbilledAmountEur: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0, feeEstimated: 0 }
   for (const e of entries) {
     t.count++
     t.durationMin += e.durationMin
@@ -343,13 +356,17 @@ export function totals(entries: TimeEntry[]): Totals {
     t.amount += e.amount
     t.feeAmount += e.feeAmount ?? 0
     t.netAmount += netOf(e)
-    if (e.netAmountEur != null) t.netAmountEur += e.netAmountEur
+    const eur = netEurOf(e)
+    if (eur != null) t.netAmountEur += eur
     else t.eurMissing++
     if (e.settlement === 'estimated') t.estimated++
     if (e.source === 'upwork' && !e.isBilled) t.feeEstimated++
-    if (e.isBilled) t.billedAmount += netOf(e)
-    else {
+    if (e.isBilled) {
+      t.billedAmount += netOf(e)
+      t.billedAmountEur += eur ?? 0
+    } else {
       t.unbilledAmount += netOf(e)
+      t.unbilledAmountEur += eur ?? 0
       t.unbilledMin += billedMinutes(e)
     }
   }
