@@ -56,9 +56,12 @@ export default function UpworkImportCard() {
       await pullLatest()
       const r = await importUpwork(file)
       setReport(r)
-      toast(`Upwork: ${r.entries.added} new rows, ${r.entries.updated} updated, ${r.entries.removed} removed, ${r.transactions.added} new transactions`)
+      // One toast for import and settlement together: a second one would replace the first at once.
       const s = await recalculateUpwork()
-      if (s.updated) toast(`Fees and exchange rates: ${s.updated} entries settled, ${s.estimated} still estimated`)
+      toast(
+        `Upwork: ${r.entries.added} new rows, ${r.entries.updated} updated, ${r.entries.removed} removed, ${r.transactions.added} new transactions` +
+          (s.updated ? ` · ${s.updated} settled, ${s.estimated} still estimated` : ''),
+      )
       if (s.estimated > 0) void refreshRatesAndRecalculate().then((x) => x.updated && toast(`ECB rates: ${x.updated} estimates updated`))
       setFile(null)
       setInputKey((k) => k + 1)
