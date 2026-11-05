@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
+import { recalculateUpwork } from '../../src/lib/upwork/allocate'
 import { classifyTransaction, feePercentFor, importUpwork, mergeUpworkFiles, parseTransaction, resolveContract, timeRowKey, upworkClientName, type UpworkContractRow, type UpworkImportFile } from '../../src/lib/upwork/import'
 
 let db: TimeTrackingDB
@@ -147,14 +148,20 @@ describe('Upwork import', () => {
       netAmount: 468,
       settlement: 'estimated',
       comments: 'RDEV-46',
-      isBilled: true,
-      invoiceDate: '2026-10-18',
-      invoiceRef: 'Upwork week 2026-10-12',
+      isBilled: false,
       source: 'upwork',
       timeless: true,
     })
+    expect(first12.invoiceDate).toBeUndefined()
     expect(first12.billedMin).toBeUndefined()
     expect(first12.fxRate).toBeUndefined()
+    // Billing follows the ledger: the week's invoice row marks the work billed, the next week has none yet.
+    await recalculateUpwork(db)
+    const settled = await db.entries.where('source').equals('upwork').toArray()
+    const byKey = (k: string) => settled.find((e) => e.externalId === k)!
+    expect(byKey('upwork:36599829:2026-10-12:1446010756')).toMatchObject({ isBilled: true, invoiceDate: '2026-10-18', invoiceRef: 'Upwork week 2026-10-12', feeAmount: 52, netAmount: 468 })
+    expect(byKey('upwork:36599829:2026-10-14:1446010756')).toMatchObject({ isBilled: true, invoiceDate: '2026-10-18' })
+    expect(byKey('upwork:19450271:2026-10-15:0000000001')).toMatchObject({ isBilled: false, amount: 0 })
     // Two memos on the same day stay two entries.
     expect(entries[3]).toMatchObject({ durationMin: 310, amount: 413.33, hourlyRate: 80, comments: '' })
     expect(entries[4]).toMatchObject({ durationMin: 90, amount: 120, hourlyRate: 80, comments: 'RDEV-46' })

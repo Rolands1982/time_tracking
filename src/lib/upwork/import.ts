@@ -324,7 +324,6 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
       // Unpaid hours (charges 0) are kept for the record but never count as money.
       const billable = amount > 0
       const hourlyRate = billable ? round2(t.totalCharges / t.totalHoursWorked) : 0
-      const week = t.weekWorkedOn ?? t.dateWorkedOn
       let existing = existingByExternal.get(externalId)
       if (!existing) {
         const adopt = unkeyed.get(shapeKey(project.id, t.dateWorkedOn, t.memo ?? '', durationMin))?.shift()
@@ -344,9 +343,10 @@ export async function importUpwork(file: UpworkImportFile, database: TimeTrackin
         projectId: project.id,
         hourlyRate,
         comments: t.memo?.trim() ?? '',
-        isBilled: true,
-        invoiceDate: addDays(week, 6),
-        invoiceRef: `Upwork week ${week}`,
+        // Billed once Upwork's weekly invoice row is in the ledger; recalculateUpwork() sets it from there.
+        isBilled: existing?.isBilled ?? false,
+        invoiceDate: existing?.invoiceDate,
+        invoiceRef: existing?.invoiceRef,
         billable: billable ? undefined : false,
         source: 'upwork' as const,
         externalId,

@@ -8,7 +8,7 @@ import { groupBy, isBillable, setBilled, totals } from '../db/repo'
 import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
-import { amountOf, MONEY_MODES, type MoneyMode } from '../lib/moneyMode'
+import { amountOf, DEFAULT_MONEY_MODE, estimatedIn, MONEY_MODES, type MoneyMode } from '../lib/moneyMode'
 import { periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../lib/time'
 
@@ -16,7 +16,7 @@ export default function ReportsPage() {
   const [period, setPeriod] = useState<PeriodState>(() => ({ period: 'month', anchor: todayIso().slice(0, 7), custom: { from: '', to: '' } }))
   const [clientId, setClientId] = useState<number | undefined>()
   const [invoiceDate, setInvoiceDate] = useState(todayIso())
-  const [money, setMoney] = useState<MoneyMode>('gross')
+  const [money, setMoney] = useState<MoneyMode>(DEFAULT_MONEY_MODE)
   const { clients, projects, clientName, projectName, clientById } = useLookups()
   const settings = useSettings()
   const toast = useToast()
@@ -52,8 +52,10 @@ export default function ReportsPage() {
 
   const periodLabel = labelFor(period)
 
+  // Upwork bills its own work with the weekly invoice; only direct work is marked billed by hand.
+  const manual = (list: TimeEntry[]) => list.filter((e) => e.source !== 'upwork')
   const markBilled = async (cid: number) => {
-    const ids = (unbilledByClient.get(cid) ?? []).map((e) => e.id!)
+    const ids = manual(unbilledByClient.get(cid) ?? []).map((e) => e.id!)
     if (!ids.length) return
     if (!confirm(`Mark ${ids.length} entries of ${clientName(cid)} as billed on ${invoiceDate}?`)) return
     await setBilled(ids, invoiceDate)
@@ -117,11 +119,12 @@ export default function ReportsPage() {
             </div>
             {money !== 'gross' && t.feeAmount > 0 && <div className="label">fees {formatMoney(t.feeAmount, baseCurrency)}</div>}
             {money === 'eur' && t.eurMissing > 0 && <div className="label">{t.eurMissing} entries without a rate</div>}
+            {estimatedIn(t, money) > 0 && <div className="label">{estimatedIn(t, money)} estimated</div>}
           </div>
           <div className="stat">
-            <div className="label">Not billed</div>
+            <div className="label">Not billed (net)</div>
             <div className="value">{formatMoney(t.unbilledAmount, baseCurrency)}</div>
-            {t.estimated > 0 && <div className="label">{t.estimated} estimated</div>}
+            {t.feeEstimated > 0 && <div className="label">{t.feeEstimated} awaiting Upwork invoice</div>}
           </div>
         </div>
         <Link className="btn block" to={{ pathname: '/summary', search: new URLSearchParams({ ...periodToParams(period), ...(clientId != null ? { client: String(clientId) } : {}) }).toString() }}>
@@ -157,11 +160,15 @@ export default function ReportsPage() {
                         {clientName(cid)} <span className="muted small">({ut.count})</span>
                       </td>
                       <td className="num">{(ut.durationMin / 60).toFixed(2)}</td>
-                      <td className="num">{formatMoney(ut.amount, clientById.get(cid)?.currency)}</td>
+                      <td className="num">{formatMoney(ut.netAmount, clientById.get(cid)?.currency)}</td>
                       <td className="num">
-                        <button className="btn small" onClick={() => markBilled(cid)}>
-                          Mark billed
-                        </button>
+                        {manual(list).length > 0 ? (
+                          <button className="btn small" onClick={() => markBilled(cid)}>
+                            Mark billed
+                          </button>
+                        ) : (
+                          <span className="muted small">Upwork invoices weekly</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -194,11 +201,11 @@ export default function ReportsPage() {
         Hours and amounts are on the billed basis (start snapped to 10 minutes, 15-minute steps); actual minutes are shown
         where they differ. Non-billable work {includeNonBillable ? 'is counted in the hours but never in the amounts' : 'is left out'}.{' '}
         {money === 'gross'
-          ? `Totals per client use that client's currency; the overall figures use ${currency}.`
+          ? `Gross as invoiced, before platform fees. Totals per client use that client's currency; the overall figures use ${currency}.`
           : money === 'net'
-            ? `Net = gross minus platform fees (Upwork); direct work has no fee. Figures in ${currency}.`
+            ? `Net = gross minus platform fees (Upwork); direct work has no fee. Figures in ${currency}. Upwork work counts as billed once its weekly invoice is in the ledger; until then its fee, and so its net, is an estimate.`
             : 'Net in EUR uses the exchange rate of the payout that paid each entry; entries not paid out yet use the ECB rate of the day.'}
-        {t.estimated > 0 && ` ${t.estimated} entries still carry estimated fees or rates.`}
+        {estimatedIn(t, money) > 0 && ` ${estimatedIn(t, money)} entries are still estimates.`}
       </p>
     </>
   )

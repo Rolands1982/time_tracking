@@ -139,14 +139,14 @@ describe('payouts', () => {
     const entry = (date: string, amount: number): TimeEntry =>
       ({ id: 1, date, startTime: '00:00', endTime: '01:00', durationMin: 60, clientId: 1, hourlyRate: amount, amount, comments: '', isBilled: true, source: 'upwork', createdAt: '', updatedAt: '' }) as TimeEntry
     const estimate = (d: string) => (d === '2026-10-14' ? 0.85 : undefined)
-    // Day in the first week: 40 % of the invoice; fully paid by w1 at 0.9.
-    expect(settleEntry(entry('2026-10-01', 400), earnings[0], byId, 10, estimate)).toEqual({ feeAmount: 40, netAmount: 360, fxRate: 0.9, netAmountEur: 324, settlement: 'actual', payoutId: 'w1' })
+    // Day in the first week: 40 % of the invoice; fully paid by w1 at 0.9. The invoice row bills the work.
+    expect(settleEntry(entry('2026-10-01', 400), earnings[0], byId, 10, estimate)).toEqual({ feeAmount: 40, netAmount: 360, fxRate: 0.9, netAmountEur: 324, settlement: 'actual', payoutId: 'w1', isBilled: true, invoiceDate: earnings[0].tx.date, invoiceRef: `Upwork week ${earnings[0].tx.periodFrom}` })
     // Second week: fee actual, but the invoice is only partly paid, so the rate is an estimate.
-    expect(settleEntry(entry('2026-10-14', 200), earnings[2], byId, 10, estimate)).toEqual({ feeAmount: 20, netAmount: 180, fxRate: 0.85, netAmountEur: 153, settlement: 'estimated', payoutId: undefined })
-    // No invoice yet: fee from the schedule, no rate known at all.
-    expect(settleEntry(entry('2026-10-20', 100), undefined, byId, 20, () => undefined)).toEqual({ feeAmount: 20, netAmount: 80, fxRate: undefined, netAmountEur: undefined, settlement: 'estimated', payoutId: undefined })
+    expect(settleEntry(entry('2026-10-14', 200), earnings[2], byId, 10, estimate)).toMatchObject({ feeAmount: 20, netAmount: 180, fxRate: 0.85, netAmountEur: 153, settlement: 'estimated', payoutId: undefined, isBilled: true })
+    // No invoice yet: fee from the schedule, no rate known at all, and not billed.
+    expect(settleEntry(entry('2026-10-20', 100), undefined, byId, 20, () => undefined)).toEqual({ feeAmount: 20, netAmount: 80, fxRate: undefined, netAmountEur: undefined, settlement: 'estimated', payoutId: undefined, isBilled: false, invoiceDate: undefined, invoiceRef: undefined })
     // Unpaid hours carry no money and are never "estimated".
-    expect(settleEntry(entry('2026-10-20', 0), undefined, byId, 10, () => undefined)).toMatchObject({ feeAmount: 0, netAmount: 0, netAmountEur: 0, settlement: 'actual' })
+    expect(settleEntry(entry('2026-10-20', 0), undefined, byId, 10, () => undefined)).toMatchObject({ feeAmount: 0, netAmount: 0, netAmountEur: 0, settlement: 'actual', isBilled: false })
   })
 
   it('averages the rate when an invoice spans two payouts', () => {
@@ -219,6 +219,12 @@ describe('recalculation', () => {
       [40, 360, undefined, undefined, 'estimated'],
       [60, 540, undefined, undefined, 'estimated'],
       [32, 128, 0.85, 108.8, 'estimated'],
+    ])
+    // Week 1 is billed by its invoice row of 18 October; week 2 has no invoice yet.
+    expect(entries.map((e) => [e.isBilled, e.invoiceDate, e.invoiceRef])).toEqual([
+      [true, '2026-10-18', 'Upwork week 2026-10-12'],
+      [true, '2026-10-18', 'Upwork week 2026-10-12'],
+      [false, undefined, undefined],
     ])
     expect(entries.map((e) => e.dirty)).toEqual([1, 1, 1])
     expect(entries[0].uid).toBe(before[0].uid)

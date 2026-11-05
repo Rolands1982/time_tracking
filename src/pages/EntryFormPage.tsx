@@ -100,6 +100,8 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
     [],
   )
   const [form, setForm] = useState<FormState>(initial)
+  // Upwork bills its own work with the weekly invoice; the billed state follows the ledger, not the form.
+  const platformBilled = existing?.source === 'upwork'
   const [error, setError] = useState<string | null>(null)
 
   const client = form.clientId != null ? clientById.get(form.clientId) : undefined
@@ -144,9 +146,9 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
       hourlyRate: rateNum,
       category: form.category.trim() || undefined,
       comments: form.comments.trim(),
-      isBilled: form.isBilled,
-      invoiceDate: form.isBilled ? form.invoiceDate || undefined : undefined,
-      invoiceRef: form.isBilled ? form.invoiceRef : undefined,
+      isBilled: platformBilled ? existing!.isBilled : form.isBilled,
+      invoiceDate: platformBilled ? existing!.invoiceDate : form.isBilled ? form.invoiceDate || undefined : undefined,
+      invoiceRef: platformBilled ? existing!.invoiceRef : form.isBilled ? form.invoiceRef : undefined,
       billable: form.billable,
       normalize: form.normalize,
       importKey: existing?.importKey,
@@ -266,10 +268,11 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
           Billable
         </label>
         <label className="check">
-          <input type="checkbox" checked={form.isBilled} onChange={(e) => set('isBilled', e.target.checked)} />
+          <input type="checkbox" checked={form.isBilled} onChange={(e) => set('isBilled', e.target.checked)} disabled={platformBilled} />
           Is billed
+          {platformBilled && <span className="muted small"> (set by Upwork's weekly invoice)</span>}
         </label>
-        {form.isBilled && (
+        {form.isBilled && !platformBilled && (
           <div className="grid-2">
             <label className="field">
               <span>Invoice date</span>

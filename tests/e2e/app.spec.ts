@@ -23,6 +23,9 @@ function clientLink(page: Page, name: string) {
 
 test('track time with the timer, add an entry, import Excel and see reports', async ({ page }) => {
   page.on('dialog', (d) => d.accept())
+  // No ECB rates in the test: the fetch runs in the background after an Upwork import and its toast would
+  // replace whichever message the test is waiting for at that moment.
+  await page.route(/api\.frankfurter\.dev/, (route) => route.abort())
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Time tracking' })).toBeVisible()
 
