@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB, getSettings, updateSettings } from '../../src/db/schema'
+import type { TimeEntry } from '../../src/db/types'
 import {
   addEntry,
   effectiveRate,
@@ -54,7 +55,11 @@ describe('entries', () => {
     expect(open.map((e) => e.date)).toEqual(['2026-10-01'])
     const sept = await queryEntries({ from: '2026-09-01', to: '2026-09-30' }, db)
     expect(sept).toHaveLength(2)
-    expect(totals(await queryEntries({}, db))).toMatchObject({ count: 3, durationMin: 180, amount: 120, billedAmount: 80, unbilledAmount: 40 })
+    expect(totals(await queryEntries({}, db))).toMatchObject({ count: 3, durationMin: 180, amount: 120, billedAmount: 80, unbilledAmount: 40, feeEstimated: 0 })
+    // Platform work: billed and open money are net of the fee; an entry Upwork has not invoiced yet is a fee estimate.
+    const upwork = (over: Partial<TimeEntry>): TimeEntry =>
+      ({ date: '2026-10-12', startTime: '00:00', endTime: '01:00', durationMin: 60, clientId: 1, hourlyRate: 100, amount: 100, feeAmount: 10, netAmount: 90, comments: '', isBilled: false, source: 'upwork', createdAt: '', updatedAt: '', ...over }) as TimeEntry
+    expect(totals([upwork({}), upwork({ isBilled: true, invoiceDate: '2026-10-18' })])).toMatchObject({ amount: 200, netAmount: 180, feeAmount: 20, billedAmount: 90, unbilledAmount: 90, feeEstimated: 1 })
   })
 
   it('resolves the hourly rate by date from the client rate periods', async () => {

@@ -82,8 +82,9 @@ export default function EntriesPage() {
             {t.billedMin !== t.durationMin && <div className="label">actual {formatDuration(t.durationMin)}</div>}
           </div>
           <div className="stat">
-            <div className="label">Amount</div>
-            <div className="value">{formatMoney(t.amount, currency)}</div>
+            <div className="label">{t.feeAmount > 0 ? 'Net amount' : 'Amount'}</div>
+            <div className="value">{formatMoney(t.netAmount, currency)}</div>
+            {t.feeEstimated > 0 && <div className="label">{t.feeEstimated} estimated</div>}
           </div>
         </div>
       </div>

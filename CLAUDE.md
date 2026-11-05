@@ -71,7 +71,12 @@ Conventions that matter:
   (`src/lib/fx.ts`, cached in `settings.upwork.fxRates`) and `settlement: 'estimated'`. Run
   `recalculateWithRates()` after imports and payout edits; never edit the cached columns by hand. Screens call
   `pullLatest()` (`src/sync/pullLatest.ts`) first, so a device never derives from a stale copy and pushes it over
-  fresher cloud rows.
+  fresher cloud rows. **Upwork entries are billed by the ledger, not by hand**: `isBilled`, `invoiceDate` and
+  `invoiceRef` are part of the settlement patch, true once the week's hourly invoice row exists (which is also
+  when the fee, and so the net, becomes actual). The import leaves new rows unbilled; the entry form and
+  "Mark billed" leave Upwork rows alone. Money is shown **net** by default (Entries stat, Reports default mode,
+  billed/open totals in `totals()`); `feeEstimated` counts platform rows still awaiting their invoice. Customer
+  statements and the master export stay gross.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest. Projects carry no rate. Saved entries keep the rate they were saved with.

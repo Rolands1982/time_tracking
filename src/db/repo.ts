@@ -307,8 +307,9 @@ export interface Totals {
   /** Billing-basis minutes and count of non-billable entries (work that is never invoiced). */
   nonBillableMin: number
   nonBillableCount: number
-  /** Money: non-billable entries never count, whatever amount they carry. */
+  /** Money: non-billable entries never count, whatever amount they carry. amount is the gross as invoiced. */
   amount: number
+  /** Billed and open money on the net basis (after platform fees; direct work has none). */
   billedAmount: number
   unbilledAmount: number
   unbilledMin: number
@@ -319,10 +320,17 @@ export interface Totals {
   /** Billable entries whose EUR value is unknown (no rate yet) and whose fee or rate is still an estimate. */
   eurMissing: number
   estimated: number
+  /** Platform entries not yet invoiced by the platform: their fee, and so their net, is an estimate. */
+  feeEstimated: number
+}
+
+/** What is left after platform fees; direct work has none. */
+export function netOf(e: TimeEntry): number {
+  return e.netAmount ?? e.amount - (e.feeAmount ?? 0)
 }
 
 export function totals(entries: TimeEntry[]): Totals {
-  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0 }
+  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0, feeEstimated: 0 }
   for (const e of entries) {
     t.count++
     t.durationMin += e.durationMin
@@ -334,13 +342,14 @@ export function totals(entries: TimeEntry[]): Totals {
     }
     t.amount += e.amount
     t.feeAmount += e.feeAmount ?? 0
-    t.netAmount += e.netAmount ?? e.amount - (e.feeAmount ?? 0)
+    t.netAmount += netOf(e)
     if (e.netAmountEur != null) t.netAmountEur += e.netAmountEur
     else t.eurMissing++
     if (e.settlement === 'estimated') t.estimated++
-    if (e.isBilled) t.billedAmount += e.amount
+    if (e.source === 'upwork' && !e.isBilled) t.feeEstimated++
+    if (e.isBilled) t.billedAmount += netOf(e)
     else {
-      t.unbilledAmount += e.amount
+      t.unbilledAmount += netOf(e)
       t.unbilledMin += billedMinutes(e)
     }
   }

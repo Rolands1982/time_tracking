@@ -217,6 +217,10 @@ export interface SettlementPatch {
   netAmountEur?: number
   settlement: 'actual' | 'estimated'
   payoutId?: string
+  /** Upwork bills the work with its weekly invoice: billed (and the fee actual) once that invoice row exists. */
+  isBilled: boolean
+  invoiceDate?: string
+  invoiceRef?: string
 }
 
 /** The hourly earning (weekly invoice) an entry belongs to: same contract, date inside the invoiced period. */
@@ -229,7 +233,10 @@ function earningFor(entry: TimeEntry, contractId: string, byContract: Map<string
 /** Work out fee, net, rate and EUR for one entry from its invoice and the payouts that covered it. */
 export function settleEntry(entry: TimeEntry, earning: Earning | undefined, payoutById: Map<string, Payout>, feePercent: number, estimate: RateEstimate, fallback: RateEstimate = () => undefined): SettlementPatch {
   const gross = entry.amount
-  if (!(gross > 0)) return { feeAmount: 0, netAmount: 0, fxRate: undefined, netAmountEur: 0, settlement: 'actual', payoutId: undefined }
+  const billing = earning
+    ? { isBilled: true, invoiceDate: earning.tx.date, invoiceRef: `Upwork week ${earning.tx.periodFrom ?? weekStart(entry.date)}` }
+    : { isBilled: false, invoiceDate: undefined, invoiceRef: undefined }
+  if (!(gross > 0)) return { feeAmount: 0, netAmount: 0, fxRate: undefined, netAmountEur: 0, settlement: 'actual', payoutId: undefined, ...billing }
   let fee: number
   let feeActual = false
   if (earning && earning.gross > 0) {
@@ -260,7 +267,15 @@ export function settleEntry(entry: TimeEntry, earning: Earning | undefined, payo
     netAmountEur: fxRate != null ? round2(net * fxRate) : undefined,
     settlement: feeActual && fxActual ? 'actual' : 'estimated',
     payoutId,
+    ...billing,
   }
+}
+
+/** Monday of the week the date falls in (Upwork's weeks run Monday to Sunday). */
+function weekStart(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  const back = (d.getUTCDay() + 6) % 7
+  return addDays(date, -back)
 }
 
 export interface Settlement {
@@ -304,7 +319,17 @@ export function settle({ entries, transactions, projects, feeSchedule, estimate 
 /** True when the cached columns already match the patch. */
 export function sameSettlement(e: TimeEntry, p: SettlementPatch): boolean {
   const eq = (a: number | undefined, b: number | undefined) => (a == null && b == null) || (a != null && b != null && Math.abs(a - b) < 1e-9)
-  return eq(e.feeAmount, p.feeAmount) && eq(e.netAmount, p.netAmount) && eq(e.fxRate, p.fxRate) && eq(e.netAmountEur, p.netAmountEur) && e.settlement === p.settlement && (e.payoutId ?? undefined) === p.payoutId
+  return (
+    eq(e.feeAmount, p.feeAmount) &&
+    eq(e.netAmount, p.netAmount) &&
+    eq(e.fxRate, p.fxRate) &&
+    eq(e.netAmountEur, p.netAmountEur) &&
+    e.settlement === p.settlement &&
+    (e.payoutId ?? undefined) === p.payoutId &&
+    e.isBilled === p.isBilled &&
+    (e.invoiceDate ?? undefined) === p.invoiceDate &&
+    (e.invoiceRef ?? undefined) === p.invoiceRef
+  )
 }
 
 // ---------------------------------------------------------------- recalculation
