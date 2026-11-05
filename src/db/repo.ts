@@ -185,6 +185,11 @@ export function effectiveRate(client: Client | undefined, date: string): number 
   return rateFor(client, date)
 }
 
+/** The rate a new entry suggests: the project's own rate when it has one, else the client's rate for the date. */
+export function suggestedRate(client: Client | undefined, project: Pick<Project, 'defaultRate'> | undefined, date: string): number {
+  return project?.defaultRate != null && project.defaultRate > 0 ? project.defaultRate : rateFor(client, date)
+}
+
 // ---------------------------------------------------------------- timer
 
 export async function startTimer(

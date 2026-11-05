@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useClients, useProjects } from '../db/hooks'
-import { findOrCreateClient, findOrCreateProject } from '../db/repo'
+import { findOrCreateClient, findOrCreateProject, isPlatformClient } from '../db/repo'
 
 interface Props {
   clientId?: number
@@ -8,13 +8,16 @@ interface Props {
   onChange: (next: { clientId?: number; projectId?: number }) => void
   /** Default rate for a client created inline. */
   newClientRate?: number
+  /** Offer only current (direct, non-archived) clients: platform clients get their hours from the import. */
+  directOnly?: boolean
 }
 
 const NEW = '__new__'
 
 /** Client + project selects with an inline "new…" option for both. */
-export default function ClientProjectPicker({ clientId, projectId, onChange, newClientRate = 0 }: Props) {
-  const clients = useClients()
+export default function ClientProjectPicker({ clientId, projectId, onChange, newClientRate = 0, directOnly = false }: Props) {
+  const all = useClients()
+  const clients = directOnly ? all.filter((c) => !isPlatformClient(c) || c.id === clientId) : all
   const projects = useProjects(clientId)
   const [newClient, setNewClient] = useState<string | null>(null)
   const [newProject, setNewProject] = useState<string | null>(null)

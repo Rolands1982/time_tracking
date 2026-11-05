@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import ClientProjectPicker from '../components/ClientProjectPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
-import { addEntry, deleteEntry, effectiveRate, updateEntry, type EntryInput } from '../db/repo'
+import { addEntry, deleteEntry, suggestedRate as suggestedRateFor, updateEntry, type EntryInput } from '../db/repo'
 import { db, DEFAULT_SETTINGS } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { DURATION_CHOICES_MIN, roundInterval } from '../lib/rounding'
@@ -93,7 +93,7 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
   const navigate = useNavigate()
   const toast = useToast()
   const settings = useSettings()
-  const { clientById } = useLookups()
+  const { clientById, projectById } = useLookups()
   const categories = useLiveQuery(
     async () => [...new Set((await db.entries.toArray()).map((e) => e.category).filter(Boolean))] as string[],
     [],
@@ -105,7 +105,9 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
   const [error, setError] = useState<string | null>(null)
 
   const client = form.clientId != null ? clientById.get(form.clientId) : undefined
-  const suggestedRate = effectiveRate(client, form.date)
+  const project = form.projectId != null ? projectById.get(form.projectId) : undefined
+  // The project's own rate when it has one, else the client's rate for the entry's date.
+  const suggestedRate = suggestedRateFor(client, project, form.date)
   const rateText = form.hourlyRate ?? String(suggestedRate)
   const rateNum = Number(rateText)
 

@@ -12,6 +12,7 @@ import {
   setBilled,
   startTimer,
   stopTimer,
+  suggestedRate,
   totals,
   updateEntry,
 } from '../../src/db/repo'
@@ -56,6 +57,12 @@ describe('entries', () => {
     const sept = await queryEntries({ from: '2026-09-01', to: '2026-09-30' }, db)
     expect(sept).toHaveLength(2)
     expect(totals(await queryEntries({}, db))).toMatchObject({ count: 3, durationMin: 180, amount: 120, billedAmount: 80, unbilledAmount: 40, feeEstimated: 0 })
+    // A project's own rate wins over the client's rate; without one the client's rate for the date applies.
+    const acme = { id: 1, name: 'Acme', defaultRate: 60, currency: 'EUR', rates: [{ from: '2026-10-01', rate: 80 }] }
+    expect(suggestedRate(acme, undefined, '2026-09-30')).toBe(60)
+    expect(suggestedRate(acme, { defaultRate: undefined }, '2026-10-01')).toBe(80)
+    expect(suggestedRate(acme, { defaultRate: 95 }, '2026-10-01')).toBe(95)
+    expect(suggestedRate(acme, { defaultRate: 0 }, '2026-10-01')).toBe(80)
     // Platform work: billed and open money are net of the fee; an entry Upwork has not invoiced yet is a fee estimate.
     const upwork = (over: Partial<TimeEntry>): TimeEntry =>
       ({ date: '2026-10-12', startTime: '00:00', endTime: '01:00', durationMin: 60, clientId: 1, hourlyRate: 100, amount: 100, feeAmount: 10, netAmount: 90, comments: '', isBilled: false, source: 'upwork', createdAt: '', updatedAt: '', ...over }) as TimeEntry

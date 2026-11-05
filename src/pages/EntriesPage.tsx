@@ -31,6 +31,11 @@ export default function EntriesPage() {
   }, [entries, clientId, billed, search, projectName])
   const t = useMemo(() => totals(filtered), [filtered])
   const byDay = useMemo(() => groupBy(filtered, (e) => e.date), [filtered])
+  // The filter offers the clients that have entries this month (plus the one selected, so the choice stays valid).
+  const clientOptions = useMemo(() => {
+    const present = new Set(entries.map((e) => e.clientId))
+    return clients.filter((c) => present.has(c.id!) || c.id === clientId)
+  }, [entries, clients, clientId])
 
   return (
     <>
@@ -54,7 +59,7 @@ export default function EntriesPage() {
         <div className="grid-2">
           <select value={clientId ?? ''} onChange={(e) => setClientId(e.target.value ? Number(e.target.value) : undefined)} aria-label="Client filter">
             <option value="">All clients</option>
-            {clients.map((c) => (
+            {clientOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

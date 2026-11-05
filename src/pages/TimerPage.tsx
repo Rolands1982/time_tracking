@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import ClientProjectPicker from '../components/ClientProjectPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
-import { billedMinutes, cancelTimer, effectiveRate, startTimer, stopTimer, timerRecording, totals, updateTimer } from '../db/repo'
+import { billedMinutes, cancelTimer, netEurOf, startTimer, stopTimer, suggestedRate, timerRecording, totals, updateTimer } from '../db/repo'
 import { db } from '../db/schema'
 import { formatDuration, formatElapsed, formatMoney, todayIso } from '../lib/time'
 
@@ -13,6 +13,7 @@ interface Draft {
   clientId?: number | null
   projectId?: number | null
   comments: string
+  category: string
 }
 
 function useNow(active: boolean): number {
@@ -28,11 +29,12 @@ function useNow(active: boolean): number {
 export default function TimerPage() {
   const settings = useSettings()
   const timer = settings.runningTimer
-  const { clientById, clientName, projectName } = useLookups()
+  const { clientById, clientName, projectById, projectName } = useLookups()
   const toast = useToast()
   const navigate = useNavigate()
+  const categories = useLiveQuery(async () => [...new Set((await db.entries.toArray()).map((e) => e.category).filter(Boolean))] as string[], [], [])
 
-  const [draft, setDraft] = useState<Draft>({ comments: '' })
+  const [draft, setDraft] = useState<Draft>({ comments: '', category: '' })
   // Until the user touches the picker, pre-select the client used last time.
   const draftClientId = draft.clientId === undefined ? settings.lastClientId : (draft.clientId ?? undefined)
   const draftProjectId = draft.clientId === undefined ? settings.lastProjectId : (draft.projectId ?? undefined)
@@ -40,7 +42,8 @@ export default function TimerPage() {
   const now = useNow(Boolean(timer))
 
   const activeClientId = timer ? timer.clientId : draftClientId
-  const rate = effectiveRate(activeClientId != null ? clientById.get(activeClientId) : undefined, todayIso())
+  const activeProjectId = timer ? timer.projectId : draftProjectId
+  const rate = suggestedRate(activeClientId != null ? clientById.get(activeClientId) : undefined, activeProjectId != null ? projectById.get(activeProjectId) : undefined, todayIso())
   const currency = (activeClientId != null && clientById.get(activeClientId)?.currency) || settings.defaultCurrency
 
   const today = todayIso()
@@ -49,14 +52,14 @@ export default function TimerPage() {
 
   const onStart = async () => {
     if (draftClientId == null) return toast('Choose a client first')
-    await startTimer({ clientId: draftClientId, projectId: draftProjectId, comments: draft.comments })
+    await startTimer({ clientId: draftClientId, projectId: draftProjectId, comments: draft.comments, category: draft.category.trim() || undefined })
   }
   const onStop = async () => {
     if (!timer || timer.clientId == null) return toast('Choose a client before stopping')
-    const id = await stopTimer({ clientId: timer.clientId, projectId: timer.projectId, hourlyRate: rate, comments: timer.comments })
+    const id = await stopTimer({ clientId: timer.clientId, projectId: timer.projectId, hourlyRate: rate, comments: timer.comments, category: timer.category?.trim() || undefined })
     const entry = id != null ? await db.entries.get(id) : undefined
     toast(entry ? `Saved ${formatDuration(entry.durationMin)} for ${clientName(entry.clientId)}` : 'Timer stopped')
-    setDraft({ clientId: timer.clientId, projectId: timer.projectId ?? null, comments: '' })
+    setDraft({ clientId: timer.clientId, projectId: timer.projectId ?? null, comments: '', category: timer.category ?? '' })
     if (entry && !entry.comments) navigate(`/entries/${id}`)
   }
   const onCancel = async () => {
@@ -98,7 +101,11 @@ export default function TimerPage() {
               {rate > 0 ? ` · ${formatMoney((previewMin / 60) * rate, currency)}` : ' · no hourly rate set for this client'}
             </p>
             <div className="stack">
-              <ClientProjectPicker clientId={timer.clientId} projectId={timer.projectId} onChange={(next) => updateTimer(next)} />
+              <ClientProjectPicker clientId={timer.clientId} projectId={timer.projectId} onChange={(next) => updateTimer(next)} directOnly />
+              <label className="field">
+                <span>Category</span>
+                <input list="timer-categories" value={timer.category ?? ''} onChange={(e) => updateTimer({ category: e.target.value })} placeholder="e.g. Support" />
+              </label>
               <label className="field">
                 <span>What are you working on?</span>
                 <textarea value={timer.comments} onChange={(e) => updateTimer({ comments: e.target.value })} placeholder="Comments" />
@@ -121,7 +128,12 @@ export default function TimerPage() {
                 clientId={draftClientId}
                 projectId={draftProjectId}
                 onChange={(next) => setDraft((d) => ({ ...d, clientId: next.clientId ?? null, projectId: next.projectId ?? null }))}
+                directOnly
               />
+              <label className="field">
+                <span>Category</span>
+                <input list="timer-categories" value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))} placeholder="e.g. Support" />
+              </label>
               <label className="field">
                 <span>What are you working on?</span>
                 <textarea
@@ -145,10 +157,16 @@ export default function TimerPage() {
         )}
       </div>
 
+      <datalist id="timer-categories">
+        {categories.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+
       <div className="row between">
         <h2>Today</h2>
         <span className="muted small mono">
-          {formatDuration(todayTotals.durationMin)} · {formatMoney(todayTotals.amount, currency)}
+          {formatDuration(todayTotals.durationMin)} · {formatMoney(todayTotals.netAmountEur, 'EUR')}
         </span>
       </div>
       <div className="card tight">
@@ -174,7 +192,7 @@ export default function TimerPage() {
                     {formatDuration(billedMinutes(e))}
                     {billedMinutes(e) !== e.durationMin && <span className="muted small"> ({formatDuration(e.durationMin)})</span>}
                   </div>
-                  <div className="muted small">{formatMoney(e.amount, clientById.get(e.clientId)?.currency)}</div>
+                  <div className="muted small">{netEurOf(e) != null ? formatMoney(netEurOf(e)!, 'EUR') : formatMoney(e.amount, e.currency ?? clientById.get(e.clientId)?.currency)}</div>
                 </div>
               </Link>
             ))
