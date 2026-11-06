@@ -1,8 +1,9 @@
 /**
  * Fixed-price milestones and bonuses: Upwork invoices them without hours, so no time row (and no entry) exists.
- * The user estimates the hours on the "Upwork milestones" screen and the app creates one entry per row, keyed
- * `upwork:milestone:<txId>`, with `estimatedHours: true`; fees and payouts then settle it like hourly work
- * (allocate.ts matches it to its invoice row by id). Zero hours are allowed: the money still counts.
+ * The hours are suggested from the amount at the client's rate (else a default rate), corrected by the user on
+ * the "Upwork milestones" screen, and the app creates one entry per row, keyed `upwork:milestone:<txId>`, with
+ * `estimatedHours: true`; fees and payouts then settle it like hourly work (allocate.ts matches it to its
+ * invoice row by id). Zero hours are allowed: the money still counts.
  */
 import { addEntry, rateFor } from '../../db/repo'
 import { db, type TimeTrackingDB } from '../../db/schema'
@@ -50,11 +51,10 @@ export function milestonesWithoutHours(txs: UpworkTransaction[], entries: Pick<T
 export const DEFAULT_MILESTONE_RATE = 60
 
 /**
- * Hours a milestone suggests: its amount at the client's rate on that date, or at the default rate when the
- * client has none. Bonuses are money without time: 0 hours.
+ * Hours a milestone or bonus suggests: its amount at the client's rate on that date, or at the default rate
+ * when the client has none.
  */
 export function suggestedMilestoneHours(tx: Pick<UpworkTransaction, 'type' | 'amount' | 'date'>, client: Pick<Client, 'defaultRate' | 'rates'> | undefined): { hours: number; rate: number; clientRate: boolean } {
-  if (tx.type === 'bonus') return { hours: 0, rate: 0, clientRate: false }
   const own = client ? rateFor(client, tx.date) : 0
   const rate = own > 0 ? own : DEFAULT_MILESTONE_RATE
   return { hours: Math.round((tx.amount / rate) * 100) / 100, rate, clientRate: own > 0 }

@@ -33,7 +33,7 @@ export default function UpworkMilestonesPage() {
 
   const list = useMemo(() => milestonesWithoutHours(txs, entries, projects), [txs, entries, projects])
   const total = list.reduce((s, m) => s + m.tx.amount, 0)
-  // Hours follow from the amount and the rate: the client's own rate when it has one, else 60 USD/h; bonuses 0.
+  // Hours follow from the amount and the rate: the client's own rate when it has one, else 60 USD/h.
   const suggestion = (m: Milestone, clientId = m.project?.clientId) => suggestedMilestoneHours(m.tx, clientId != null ? clientById.get(clientId) : undefined)
   const draftOf = (m: Milestone): Draft =>
     drafts[m.tx.txId] ?? { hours: String(suggestion(m).hours), date: m.tx.date, clientId: m.project?.clientId, projectId: m.project?.id }
@@ -58,11 +58,11 @@ export default function UpworkMilestonesPage() {
     }
   }
 
-  /** The rest at the suggested hours (client's rate, else 60 USD/h; bonuses 0); each can be corrected on its entry later. */
+  /** The rest at the suggested hours (client's rate, else 60 USD/h); each can be corrected on its entry later. */
   const addAllSuggested = async () => {
     const ready = list.filter((m) => m.project)
     if (!ready.length) return
-    if (!confirm(`Create ${ready.length} entries with the suggested hours (amount ÷ the client's rate, or ÷ 60 USD/h; bonuses 0 h)? Hours can be corrected on each entry later.`)) return
+    if (!confirm(`Create ${ready.length} entries with the suggested hours (amount ÷ the client's rate, or ÷ 60 USD/h)? Hours can be corrected on each entry later.`)) return
     setBusy('all')
     try {
       await pullLatest()
@@ -97,8 +97,8 @@ export default function UpworkMilestonesPage() {
         </div>
         <p className="muted small">
           Fixed-price milestones and bonuses are invoiced without hours. The hours are suggested from the amount at the client's hourly rate, or at
-          60 USD/h when the client has none; bonuses count as money without time. Correct the hours where you know better, then Add; fees and
-          payouts settle the entry like hourly work, and the hours can be changed on the entry later.
+          60 USD/h when the client has none. Correct the hours where you know better (0 keeps the money without time), then Add; fees and payouts
+          settle the entry like hourly work, and the hours can be changed on the entry later.
         </p>
         {list.some((m) => m.project) && (
           <button className="btn" onClick={() => void addAllSuggested()} disabled={busy != null} data-testid="milestones-add-all">
@@ -133,12 +133,10 @@ export default function UpworkMilestonesPage() {
                 <label className="field">
                   <span>
                     Hours
-                    {m.tx.type !== 'bonus' && (
-                      <span className="muted small">
-                        {' '}
-                        · at {formatMoney(suggestion(m, d.clientId).rate, m.tx.currency)}/h{suggestion(m, d.clientId).clientRate ? '' : ' (default)'}
-                      </span>
-                    )}
+                    <span className="muted small">
+                      {' '}
+                      · at {formatMoney(suggestion(m, d.clientId).rate, m.tx.currency)}/h{suggestion(m, d.clientId).clientRate ? '' : ' (default)'}
+                    </span>
                   </span>
                   <input
                     type="number"

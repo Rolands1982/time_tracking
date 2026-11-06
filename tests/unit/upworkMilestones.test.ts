@@ -38,13 +38,13 @@ describe('milestones without hours', () => {
     expect(milestoneTxId('upwork:36599829:2026-10-12:1446010756')).toBeUndefined()
   })
 
-  it('suggests the hours from the amount at the client rate, else 60 USD/h; bonuses get none', () => {
+  it('suggests the hours from the amount at the client rate, else 60 USD/h, for milestones and bonuses alike', () => {
     const fixed = { type: 'fixed' as const, amount: 150, date: '2026-10-26' }
     expect(suggestedMilestoneHours(fixed, undefined)).toEqual({ hours: 2.5, rate: 60, clientRate: false })
     expect(suggestedMilestoneHours(fixed, { defaultRate: 0 })).toEqual({ hours: 2.5, rate: 60, clientRate: false })
     expect(suggestedMilestoneHours(fixed, { defaultRate: 75 })).toEqual({ hours: 2, rate: 75, clientRate: true })
     expect(suggestedMilestoneHours(fixed, { defaultRate: 50, rates: [{ from: '2026-10-01', rate: 100 }] })).toEqual({ hours: 1.5, rate: 100, clientRate: true })
-    expect(suggestedMilestoneHours({ type: 'bonus', amount: 150, date: '2026-10-26' }, { defaultRate: 75 })).toEqual({ hours: 0, rate: 0, clientRate: false })
+    expect(suggestedMilestoneHours({ type: 'bonus', amount: 150, date: '2026-10-26' }, { defaultRate: 75 })).toEqual({ hours: 2, rate: 75, clientRate: true })
   })
 
   it('lists fixed-price and bonus rows that have no entry, skipping the reversed bonus and its reversal', async () => {
