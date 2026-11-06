@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
 import { recalculateUpwork } from '../../src/lib/upwork/allocate'
 import { importUpwork, type UpworkImportFile } from '../../src/lib/upwork/import'
-import { addMilestoneEntry, milestoneKey, milestonesWithoutHours, milestoneTitle, milestoneTxId } from '../../src/lib/upwork/milestones'
+import { addMilestoneEntry, milestoneKey, milestonesWithoutHours, milestoneTitle, milestoneTxId, suggestedMilestoneHours } from '../../src/lib/upwork/milestones'
 
 let n = 0
 let db: TimeTrackingDB
@@ -36,6 +36,15 @@ describe('milestones without hours', () => {
     expect(milestoneTitle({ type: 'fixed', subtype: 'Fixed Price', description: 'Invoice for Dashboard' })).toBe('Dashboard')
     expect(milestoneTxId(milestoneKey('960041226'))).toBe('960041226')
     expect(milestoneTxId('upwork:36599829:2026-10-12:1446010756')).toBeUndefined()
+  })
+
+  it('suggests the hours from the amount at the client rate, else 60 USD/h; bonuses get none', () => {
+    const fixed = { type: 'fixed' as const, amount: 150, date: '2026-10-26' }
+    expect(suggestedMilestoneHours(fixed, undefined)).toEqual({ hours: 2.5, rate: 60, clientRate: false })
+    expect(suggestedMilestoneHours(fixed, { defaultRate: 0 })).toEqual({ hours: 2.5, rate: 60, clientRate: false })
+    expect(suggestedMilestoneHours(fixed, { defaultRate: 75 })).toEqual({ hours: 2, rate: 75, clientRate: true })
+    expect(suggestedMilestoneHours(fixed, { defaultRate: 50, rates: [{ from: '2026-10-01', rate: 100 }] })).toEqual({ hours: 1.5, rate: 100, clientRate: true })
+    expect(suggestedMilestoneHours({ type: 'bonus', amount: 150, date: '2026-10-26' }, { defaultRate: 75 })).toEqual({ hours: 0, rate: 0, clientRate: false })
   })
 
   it('lists fixed-price and bonus rows that have no entry, skipping the reversed bonus and its reversal', async () => {
