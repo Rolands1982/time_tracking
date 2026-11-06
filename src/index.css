@@ -458,11 +458,19 @@ textarea {
     opacity: 0.3;
   }
 }
-.toast {
+.toast-stack {
   position: fixed;
   left: 50%;
   bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 30;
+  max-width: calc(100% - 32px);
+}
+.toast {
   background: var(--text);
   color: var(--bg);
   padding: 10px 16px;

@@ -1,31 +1,50 @@
-import { useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import ClientProjectPicker from '../components/ClientProjectPicker'
-import { useToast } from '../components/toastContext'
-import { useLookups, useSettings } from '../db/hooks'
-import { addEntry, deleteEntry, suggestedRate as suggestedRateFor, updateEntry, type EntryInput } from '../db/repo'
-import { db, DEFAULT_SETTINGS } from '../db/schema'
-import type { TimeEntry } from '../db/types'
-import { DURATION_CHOICES_MIN, roundInterval } from '../lib/rounding'
-import { durationMinutes, formatDuration, formatMoney, hmToMinutes, isValidHm, isValidIsoDate, minutesToHm, toHm, todayIso } from '../lib/time'
+import { useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import ClientProjectPicker from "../components/ClientProjectPicker";
+import { useToast } from "../components/toastContext";
+import { useLookups, useSettings } from "../db/hooks";
+import {
+  addEntry,
+  deleteEntry,
+  suggestedRate as suggestedRateFor,
+  updateEntry,
+  type EntryInput,
+} from "../db/repo";
+import { db, DEFAULT_SETTINGS } from "../db/schema";
+import type { TimeEntry } from "../db/types";
+import { DURATION_CHOICES_MIN, roundInterval } from "../lib/rounding";
+import {
+  durationMinutes,
+  formatDuration,
+  formatMoney,
+  hmToMinutes,
+  isValidHm,
+  isValidIsoDate,
+  minutesToHm,
+  toHm,
+  todayIso,
+} from "../lib/time";
 
 interface FormState {
-  date: string
-  startTime: string
-  endTime: string
-  clientId?: number
-  projectId?: number
+  date: string;
+  startTime: string;
+  endTime: string;
+  clientId?: number;
+  projectId?: number;
   /** Rate typed by the user; null = follow the client/project default. */
-  hourlyRate: string | null
-  category: string
-  comments: string
-  isBilled: boolean
-  invoiceDate: string
-  invoiceRef: string
-  billable: boolean
+  hourlyRate: string | null;
+  category: string;
+  comments: string;
+  isBilled: boolean;
+  invoiceDate: string;
+  invoiceRef: string;
+  billable: boolean;
   /** Derive the billed columns with the billing rules. */
-  normalize: boolean
+  normalize: boolean;
+  /** Platform rows have no clock times: the hours are edited directly and the gross stays as invoiced. */
+  timeless: boolean;
+  hours: string;
 }
 
 function stateFromEntry(e: TimeEntry): FormState {
@@ -36,19 +55,27 @@ function stateFromEntry(e: TimeEntry): FormState {
     clientId: e.clientId,
     projectId: e.projectId,
     hourlyRate: String(e.hourlyRate),
-    category: e.category ?? '',
+    category: e.category ?? "",
     comments: e.comments,
     isBilled: e.isBilled,
-    invoiceDate: e.invoiceDate ?? '',
-    invoiceRef: e.invoiceRef ?? '',
+    invoiceDate: e.invoiceDate ?? "",
+    invoiceRef: e.invoiceRef ?? "",
     billable: e.billable !== false,
     normalize: e.billedMin != null,
-  }
+    timeless: Boolean(e.timeless),
+    hours: e.timeless
+      ? String(Math.round((e.durationMin / 60) * 100) / 100)
+      : "",
+  };
 }
 
-function freshState(lastClientId: number | undefined, lastProjectId: number | undefined, normalize: boolean): FormState {
-  const now = new Date()
-  const start = new Date(now.getTime() - 60 * 60_000)
+function freshState(
+  lastClientId: number | undefined,
+  lastProjectId: number | undefined,
+  normalize: boolean,
+): FormState {
+  const now = new Date();
+  const start = new Date(now.getTime() - 60 * 60_000);
   return {
     date: todayIso(),
     startTime: toHm(start),
@@ -56,126 +83,199 @@ function freshState(lastClientId: number | undefined, lastProjectId: number | un
     clientId: lastClientId,
     projectId: lastProjectId,
     hourlyRate: null,
-    category: '',
-    comments: '',
+    category: "",
+    comments: "",
     isBilled: false,
-    invoiceDate: '',
-    invoiceRef: '',
+    invoiceDate: "",
+    invoiceRef: "",
     billable: true,
     normalize,
-  }
+    timeless: false,
+    hours: "",
+  };
 }
 
 /** Route wrapper: loads the entry (if editing) and the settings before mounting the form. */
 export default function EntryFormPage() {
-  const { id } = useParams()
-  const entryId = id ? Number(id) : undefined
+  const { id } = useParams();
+  const entryId = id ? Number(id) : undefined;
   // Resolves to undefined only while loading (a missing settings row yields the defaults).
-  const settings = useLiveQuery(async () => (await db.settings.get('app')) ?? DEFAULT_SETTINGS, [])
+  const settings = useLiveQuery(
+    async () => (await db.settings.get("app")) ?? DEFAULT_SETTINGS,
+    [],
+  );
   const existing = useLiveQuery<TimeEntry | null | undefined>(
-    async () => (entryId != null ? ((await db.entries.get(entryId)) ?? null) : null),
+    async () =>
+      entryId != null ? ((await db.entries.get(entryId)) ?? null) : null,
     [entryId],
-  )
+  );
 
-  if (existing === undefined || settings === undefined) return <p className="muted">Loading…</p>
-  if (entryId != null && existing === null) return <p className="muted">Entry not found.</p>
+  if (existing === undefined || settings === undefined)
+    return <p className="muted">Loading…</p>;
+  if (entryId != null && existing === null)
+    return <p className="muted">Entry not found.</p>;
   return (
     <EntryForm
-      key={entryId ?? 'new'}
+      key={entryId ?? "new"}
       entryId={entryId}
       existing={existing ?? undefined}
-      initial={existing ? stateFromEntry(existing) : freshState(settings.lastClientId, settings.lastProjectId, settings.roundingMode !== 'exact')}
+      initial={
+        existing
+          ? stateFromEntry(existing)
+          : freshState(
+              settings.lastClientId,
+              settings.lastProjectId,
+              settings.roundingMode !== "exact",
+            )
+      }
     />
-  )
+  );
 }
 
-function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?: TimeEntry; initial: FormState }) {
-  const navigate = useNavigate()
-  const toast = useToast()
-  const settings = useSettings()
-  const { clientById, projectById } = useLookups()
+function EntryForm({
+  entryId,
+  existing,
+  initial,
+}: {
+  entryId?: number;
+  existing?: TimeEntry;
+  initial: FormState;
+}) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const settings = useSettings();
+  const { clientById, projectById } = useLookups();
   const categories = useLiveQuery(
-    async () => [...new Set((await db.entries.toArray()).map((e) => e.category).filter(Boolean))] as string[],
+    async () =>
+      [
+        ...new Set(
+          (await db.entries.toArray()).map((e) => e.category).filter(Boolean),
+        ),
+      ] as string[],
     [],
     [],
-  )
-  const [form, setForm] = useState<FormState>(initial)
+  );
+  const [form, setForm] = useState<FormState>(initial);
   // Upwork bills its own work with the weekly invoice; the billed state follows the ledger, not the form.
-  const platformBilled = existing?.source === 'upwork'
-  const [error, setError] = useState<string | null>(null)
+  const platformBilled = existing?.source === "upwork";
+  const [error, setError] = useState<string | null>(null);
 
-  const client = form.clientId != null ? clientById.get(form.clientId) : undefined
-  const project = form.projectId != null ? projectById.get(form.projectId) : undefined
+  const client =
+    form.clientId != null ? clientById.get(form.clientId) : undefined;
+  const project =
+    form.projectId != null ? projectById.get(form.projectId) : undefined;
   // The project's own rate when it has one, else the client's rate for the entry's date.
-  const suggestedRate = suggestedRateFor(client, project, form.date)
-  const rateText = form.hourlyRate ?? String(suggestedRate)
-  const rateNum = Number(rateText)
+  const suggestedRate = suggestedRateFor(client, project, form.date);
+  const rateText = form.hourlyRate ?? String(suggestedRate);
+  const rateNum = Number(rateText);
 
   const duration = useMemo(() => {
     try {
-      return durationMinutes(form.startTime, form.endTime)
+      return durationMinutes(form.startTime, form.endTime);
     } catch {
-      return null
+      return null;
     }
-  }, [form.startTime, form.endTime])
+  }, [form.startTime, form.endTime]);
   const billed = useMemo(() => {
-    if (duration == null || !form.normalize) return null
-    return roundInterval(form.startTime, form.endTime)
-  }, [duration, form.normalize, form.startTime, form.endTime])
-  const billedMin = billed ? billed.durationMin : duration
-  const amount = billedMin != null && Number.isFinite(rateNum) ? (billedMin / 60) * rateNum : 0
-  const currency = client?.currency ?? settings.defaultCurrency
+    if (duration == null || !form.normalize) return null;
+    return roundInterval(form.startTime, form.endTime);
+  }, [duration, form.normalize, form.startTime, form.endTime]);
+  const billedMin = billed ? billed.durationMin : duration;
+  const amount =
+    billedMin != null && Number.isFinite(rateNum)
+      ? (billedMin / 60) * rateNum
+      : 0;
+  const currency = client?.currency ?? settings.defaultCurrency;
   const setDuration = (min: number) => {
-    if (!isValidHm(form.startTime)) return
-    set('endTime', minutesToHm(hmToMinutes(form.startTime) + min))
-  }
+    if (!isValidHm(form.startTime)) return;
+    set("endTime", minutesToHm(hmToMinutes(form.startTime) + min));
+  };
 
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  // Timeless rows: hours typed in, gross as invoiced, the rate follows.
+  const timelessHours = form.timeless
+    ? Number(form.hours.replace(",", "."))
+    : NaN;
+  const timelessMin = Math.round(timelessHours * 60);
+  const timelessRate =
+    form.timeless && existing
+      ? timelessMin > 0
+        ? Math.round((existing.amount / (timelessMin / 60)) * 100) / 100
+        : 0
+      : rateNum;
 
   const onSave = async () => {
-    setError(null)
-    if (!isValidIsoDate(form.date)) return setError('Please enter a valid date.')
-    if (!isValidHm(form.startTime) || !isValidHm(form.endTime)) return setError('Please enter valid start and end times.')
-    if (form.clientId == null) return setError('Please choose a client.')
-    if (!Number.isFinite(rateNum) || rateNum < 0) return setError('Hourly rate must be a number.')
-    if (form.isBilled && form.invoiceDate && !isValidIsoDate(form.invoiceDate)) return setError('Invoice date is invalid.')
+    setError(null);
+    if (!isValidIsoDate(form.date))
+      return setError("Please enter a valid date.");
+    if (
+      !form.timeless &&
+      (!isValidHm(form.startTime) || !isValidHm(form.endTime))
+    )
+      return setError("Please enter valid start and end times.");
+    if (form.timeless && !(timelessHours >= 0))
+      return setError("Hours must be zero or more.");
+    if (form.clientId == null) return setError("Please choose a client.");
+    if (!form.timeless && (!Number.isFinite(rateNum) || rateNum < 0))
+      return setError("Hourly rate must be a number.");
+    if (form.isBilled && form.invoiceDate && !isValidIsoDate(form.invoiceDate))
+      return setError("Invoice date is invalid.");
     const input: EntryInput = {
       date: form.date,
-      startTime: form.startTime,
-      endTime: form.endTime,
+      startTime: form.timeless ? "00:00" : form.startTime,
+      endTime: form.timeless ? minutesToHm(timelessMin % 1440) : form.endTime,
+      ...(form.timeless
+        ? {
+            timeless: true,
+            durationMin: timelessMin,
+            amount: existing?.amount,
+            estimatedHours: existing?.estimatedHours,
+          }
+        : {}),
       clientId: form.clientId,
       projectId: form.projectId,
-      hourlyRate: rateNum,
+      hourlyRate: form.timeless ? timelessRate : rateNum,
       category: form.category.trim() || undefined,
       comments: form.comments.trim(),
       isBilled: platformBilled ? existing!.isBilled : form.isBilled,
-      invoiceDate: platformBilled ? existing!.invoiceDate : form.isBilled ? form.invoiceDate || undefined : undefined,
-      invoiceRef: platformBilled ? existing!.invoiceRef : form.isBilled ? form.invoiceRef : undefined,
+      invoiceDate: platformBilled
+        ? existing!.invoiceDate
+        : form.isBilled
+          ? form.invoiceDate || undefined
+          : undefined,
+      invoiceRef: platformBilled
+        ? existing!.invoiceRef
+        : form.isBilled
+          ? form.invoiceRef
+          : undefined,
       billable: form.billable,
-      normalize: form.normalize,
+      normalize: form.timeless ? false : form.normalize,
       importKey: existing?.importKey,
-    }
+      externalId: existing?.externalId,
+    };
     if (entryId != null) {
-      await updateEntry(entryId, input)
-      toast('Entry updated')
+      await updateEntry(entryId, input);
+      toast("Entry updated");
     } else {
-      await addEntry(input)
-      toast('Entry saved')
+      await addEntry(input);
+      toast("Entry saved");
     }
-    navigate(-1)
-  }
+    navigate(-1);
+  };
 
   const onDelete = async () => {
-    if (entryId == null || !confirm('Delete this entry?')) return
-    await deleteEntry(entryId)
-    toast('Entry deleted')
-    navigate('/entries', { replace: true })
-  }
+    if (entryId == null || !confirm("Delete this entry?")) return;
+    await deleteEntry(entryId);
+    toast("Entry deleted");
+    navigate("/entries", { replace: true });
+  };
 
   return (
     <>
       <div className="topbar">
-        <h1>{entryId != null ? 'Edit entry' : 'New entry'}</h1>
+        <h1>{entryId != null ? "Edit entry" : "New entry"}</h1>
         <Link to="/entries" className="btn small ghost">
           Cancel
         </Link>
@@ -183,52 +283,126 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
       <form
         className="card stack"
         onSubmit={(e) => {
-          e.preventDefault()
-          void onSave()
+          e.preventDefault();
+          void onSave();
         }}
       >
         <label className="field">
           <span>Date</span>
-          <input type="date" value={form.date} onChange={(e) => set('date', e.target.value)} required />
+          <input
+            type="date"
+            value={form.date}
+            onChange={(e) => set("date", e.target.value)}
+            required
+          />
         </label>
-        <div className="grid-2">
-          <label className="field">
-            <span>Start time</span>
-            <input type="time" value={form.startTime} onChange={(e) => set('startTime', e.target.value)} required />
-          </label>
-          <label className="field">
-            <span>End time</span>
-            <input type="time" value={form.endTime} onChange={(e) => set('endTime', e.target.value)} required />
-          </label>
-        </div>
-        <div className="row wrap" style={{ gap: 6 }}>
-          {DURATION_CHOICES_MIN.map((m) => (
-            <button key={m} type="button" className={`btn small${duration === m ? ' primary' : ''}`} onClick={() => setDuration(m)}>
-              {formatDuration(m)}
-            </button>
-          ))}
-        </div>
-        <p className="muted small">
-          {duration != null ? (
-            <>
-              Duration <strong>{formatDuration(duration)}</strong>
-              {form.endTime <= form.startTime ? ' (ends after midnight)' : ''} · Amount <strong>{formatMoney(amount, currency)}</strong>
-              {billed && (
+        {form.timeless && existing && (
+          <>
+            <label className="field">
+              <span>Hours{existing.estimatedHours ? " (estimated)" : ""}</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.25"
+                min="0"
+                value={form.hours}
+                onChange={(e) => set("hours", e.target.value)}
+                required
+              />
+            </label>
+            <p className="muted small">
+              {existing.estimatedHours
+                ? "Fixed-price work from Upwork: the amount is as invoiced"
+                : "Hours reported by Upwork; the amount is as charged"}{" "}
+              (
+              <strong>
+                {formatMoney(existing.amount, existing.currency ?? currency)}
+              </strong>
+              ), the rate follows the hours
+              {timelessMin > 0 ? (
                 <>
-                  <br />
-                  Billed as <strong>{billed.startTime}–{billed.endTime}</strong> · <strong>{formatDuration(billed.durationMin)}</strong>
-                  {!billed.billable ? ' · under 7 minutes: non-billable' : ''}
+                  :{" "}
+                  <strong>
+                    {formatMoney(timelessRate, existing.currency ?? currency)}/h
+                  </strong>
                 </>
+              ) : (
+                ""
               )}
-            </>
-          ) : (
-            'Enter start and end times'
-          )}
-        </p>
-        <label className="check">
-          <input type="checkbox" checked={form.normalize} onChange={(e) => set('normalize', e.target.checked)} />
-          Apply billing rounding (10-min start, 15-min steps)
-        </label>
+              .
+            </p>
+          </>
+        )}
+        {!form.timeless && (
+          <>
+            <div className="grid-2">
+              <label className="field">
+                <span>Start time</span>
+                <input
+                  type="time"
+                  value={form.startTime}
+                  onChange={(e) => set("startTime", e.target.value)}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>End time</span>
+                <input
+                  type="time"
+                  value={form.endTime}
+                  onChange={(e) => set("endTime", e.target.value)}
+                  required
+                />
+              </label>
+            </div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {DURATION_CHOICES_MIN.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`btn small${duration === m ? " primary" : ""}`}
+                  onClick={() => setDuration(m)}
+                >
+                  {formatDuration(m)}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">
+              {duration != null ? (
+                <>
+                  Duration <strong>{formatDuration(duration)}</strong>
+                  {form.endTime <= form.startTime
+                    ? " (ends after midnight)"
+                    : ""}{" "}
+                  · Amount <strong>{formatMoney(amount, currency)}</strong>
+                  {billed && (
+                    <>
+                      <br />
+                      Billed as{" "}
+                      <strong>
+                        {billed.startTime}–{billed.endTime}
+                      </strong>{" "}
+                      · <strong>{formatDuration(billed.durationMin)}</strong>
+                      {!billed.billable
+                        ? " · under 7 minutes: non-billable"
+                        : ""}
+                    </>
+                  )}
+                </>
+              ) : (
+                "Enter start and end times"
+              )}
+            </p>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.normalize}
+                onChange={(e) => set("normalize", e.target.checked)}
+              />
+              Apply billing rounding (10-min start, 15-min steps)
+            </label>
+          </>
+        )}
 
         <ClientProjectPicker
           clientId={form.clientId}
@@ -238,20 +412,41 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
         />
 
         <div className="grid-2">
-          <label className="field">
-            <span>
-              Hourly rate ({currency})
-              {form.hourlyRate != null && suggestedRate > 0 && suggestedRate !== rateNum && (
-                <button type="button" className="btn ghost small" style={{ minHeight: 0, padding: 0 }} onClick={() => set('hourlyRate', null)}>
-                  use {suggestedRate}
-                </button>
-              )}
-            </span>
-            <input type="number" inputMode="decimal" step="0.01" min="0" value={rateText} onChange={(e) => set('hourlyRate', e.target.value)} />
-          </label>
+          {!form.timeless && (
+            <label className="field">
+              <span>
+                Hourly rate ({currency})
+                {form.hourlyRate != null &&
+                  suggestedRate > 0 &&
+                  suggestedRate !== rateNum && (
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      style={{ minHeight: 0, padding: 0 }}
+                      onClick={() => set("hourlyRate", null)}
+                    >
+                      use {suggestedRate}
+                    </button>
+                  )}
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={rateText}
+                onChange={(e) => set("hourlyRate", e.target.value)}
+              />
+            </label>
+          )}
           <label className="field">
             <span>Category</span>
-            <input list="categories" value={form.category} onChange={(e) => set('category', e.target.value)} placeholder="e.g. Support" />
+            <input
+              list="categories"
+              value={form.category}
+              onChange={(e) => set("category", e.target.value)}
+              placeholder="e.g. Support"
+            />
             <datalist id="categories">
               {categories.map((c) => (
                 <option key={c} value={c} />
@@ -262,27 +457,53 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
 
         <label className="field">
           <span>Comments</span>
-          <textarea value={form.comments} onChange={(e) => set('comments', e.target.value)} placeholder="What was done?" />
+          <textarea
+            value={form.comments}
+            onChange={(e) => set("comments", e.target.value)}
+            placeholder="What was done?"
+          />
         </label>
 
         <label className="check">
-          <input type="checkbox" checked={form.billable} onChange={(e) => set('billable', e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={form.billable}
+            onChange={(e) => set("billable", e.target.checked)}
+          />
           Billable
         </label>
         <label className="check">
-          <input type="checkbox" checked={form.isBilled} onChange={(e) => set('isBilled', e.target.checked)} disabled={platformBilled} />
+          <input
+            type="checkbox"
+            checked={form.isBilled}
+            onChange={(e) => set("isBilled", e.target.checked)}
+            disabled={platformBilled}
+          />
           Is billed
-          {platformBilled && <span className="muted small"> (set by Upwork's weekly invoice)</span>}
+          {platformBilled && (
+            <span className="muted small">
+              {" "}
+              (set by Upwork's weekly invoice)
+            </span>
+          )}
         </label>
         {form.isBilled && !platformBilled && (
           <div className="grid-2">
             <label className="field">
               <span>Invoice date</span>
-              <input type="date" value={form.invoiceDate} onChange={(e) => set('invoiceDate', e.target.value)} />
+              <input
+                type="date"
+                value={form.invoiceDate}
+                onChange={(e) => set("invoiceDate", e.target.value)}
+              />
             </label>
             <label className="field">
               <span>Invoice reference</span>
-              <input value={form.invoiceRef} onChange={(e) => set('invoiceRef', e.target.value)} placeholder="number / period" />
+              <input
+                value={form.invoiceRef}
+                onChange={(e) => set("invoiceRef", e.target.value)}
+                placeholder="number / period"
+              />
             </label>
           </div>
         )}
@@ -294,11 +515,15 @@ function EntryForm({ entryId, existing, initial }: { entryId?: number; existing?
               Delete
             </button>
           )}
-          <button type="submit" className="btn primary" data-testid="save-entry">
+          <button
+            type="submit"
+            className="btn primary"
+            data-testid="save-entry"
+          >
             Save
           </button>
         </div>
       </form>
     </>
-  )
+  );
 }

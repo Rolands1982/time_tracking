@@ -62,7 +62,10 @@ Conventions that matter:
   or the allocation set. `timeless: true` entries only report a duration: show it instead of the times.
 - Upwork data: `upworkTransactions` is the raw ledger (never edited by derivations; `eurAmount` on withdrawals is
   the one user-entered field); entries are one per contract, day and memo, keyed by `externalId` = `upwork:<contractId>:<date>:<memoId>`
-  (memo id = tail of the MCP row cursor); hours with zero charges import as non-billable; projects carry
+  (memo id = tail of the MCP row cursor); hours with zero charges import as non-billable; fixed-price milestones
+  and bonuses have no hours on Upwork, so the user estimates them on the Upwork milestones screen
+  (`src/lib/upwork/milestones.ts`): one entry per row keyed `upwork:milestone:<txId>`, `estimatedHours: true`,
+  gross as invoiced, rate = gross ÷ hours (0 hours allowed), settled from its own invoice row; projects carry
   `upwork.contractId`, clients `upworkClientId`. Fee rows reference the *term* id, time rows map term → contract.
   Settlement (`src/lib/upwork/allocate.ts`) is derived from the ledger and cached on the entries: fees link to
   invoices by contract and day, payouts pay the oldest earnings first (FIFO), an entry's `fxRate` is that of the

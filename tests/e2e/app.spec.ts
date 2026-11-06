@@ -122,16 +122,26 @@ test('track time with the timer, add an entry, import Excel and see reports', as
         { recordId: '960041233', accountingSubtype: 'Service Fee', type: 'APAdjustment', description: 'Service Fee\nContract ID: 42838462\nContract title: RPA Developer\nClient: Northwind Supply\nAmount: \n$520.00 USD x 10% = $52.00 USD\nNotes: n', transactionAmount: { currency: 'USD', rawValue: '-52.00' }, transactionCreationDate: `${ym}-12T00:00:00+0000`, assignmentCompanyName: 'Northwind Supply' },
         { recordId: '961135619', accountingSubtype: 'Withdrawal', type: 'APPayment', description: 'Withdrawal - Direct to Local Bank Transfer: xxxx-9485', transactionAmount: { currency: 'USD', rawValue: '467.01' }, transactionCreationDate: `${ym}-19T00:00:00+0000` },
         { recordId: '961135620', accountingSubtype: 'Withdrawal Fee', type: 'APAdjustment', description: 'Withdrawal Fee - Direct to Local Bank', transactionAmount: { currency: 'USD', rawValue: '-0.99' }, transactionCreationDate: `${ym}-19T00:00:00+0000` },
+        { recordId: '970000001', accountingSubtype: 'Fixed Price', type: 'APInvoice', description: 'Invoice for RPA Developer: Milestone 1 - Setup', transactionAmount: { currency: 'USD', rawValue: '200.00' }, transactionCreationDate: `${ym}-20T00:00:00+0000`, assignmentCompanyName: 'Northwind Supply' },
       ],
     }),
   )
   await page.getByLabel('Upwork import file').setInputFiles(upworkPath)
-  await expect(page.getByText(/1 contracts, 1 time rows, 4 transactions/)).toBeVisible()
+  await expect(page.getByText(/1 contracts, 1 time rows, 5 transactions/)).toBeVisible()
   await page.getByTestId('upwork-import').click()
   await expect(page.getByText(/Upwork: 1 new rows/)).toBeVisible()
   await expect(page.getByText('Upwork days')).toBeVisible()
+  // The fixed-price milestone has no hours: estimate them on the milestones screen.
+  await page.getByTestId('upwork-milestones').click()
+  await expect(page.getByTestId('milestone')).toHaveCount(1)
+  await page.getByLabel('Hours for Milestone 1 - Setup').fill('2')
+  await page.getByTestId('milestone-add').click()
+  await expect(page.getByText(/Milestone 1 - Setup: 2 h entered/)).toBeVisible()
+  await expect(page.getByText('Every milestone and bonus has its entry.')).toBeVisible()
   await page.getByRole('link', { name: 'Entries' }).click()
-  await expect(page.getByText('Northwind Supply · RPA Developer')).toBeVisible()
+  await expect(page.getByText('2h estimated · Milestone 1 - Setup')).toBeVisible()
+  await page.getByRole('link', { name: 'Entries' }).click()
+  await expect(page.getByText('Northwind Supply · RPA Developer').first()).toBeVisible()
   await expect(page.getByText('6h 30m logged · RDEV-46')).toBeVisible()
 
   // Payouts: the bank received 421.20 EUR for the 468 USD payout (withdrawal + fee), rate 0.9; the week's
@@ -150,7 +160,8 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   const eur = page.getByLabel(`EUR received for payout ${ym}-19`)
   await eur.fill('421.20')
   await eur.press('Enter')
-  await expect(page.getByText(/Payout .* saved: 1 entries updated, 0 still estimated/)).toBeVisible()
+  // The milestone (invoiced after the payout) stays an estimate until a later payout covers it.
+  await expect(page.getByText(/Payout .* saved: 1 entries updated, 1 still estimated/)).toBeVisible()
   await expect(page.getByRole('cell', { name: '0.9000' })).toBeVisible()
 
   // Reports: all-time view shows both clients and an open balance for Polystylex.
@@ -163,14 +174,15 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByTestId('include-non-billable').check()
   await expect(page.getByTestId('report-hours')).toHaveText((hoursBefore + 61 / 60).toFixed(2))
   await page.getByTestId('include-non-billable').uncheck()
-  // Without a client filter everything is net in EUR: the Upwork week counts as 421.20. With the Upwork client
-  // selected, gross (520), net (468) and net EUR stand side by side.
-  await expect(page.getByRole('cell', { name: /Northwind Supply/ }).first().locator('xpath=following-sibling::td[2]')).toHaveText('€421.20')
+  // Without a client filter everything is net in EUR: the Upwork week counts as 421.20 and the milestone, not paid
+  // out yet, is estimated at the last payout's rate (200 × 0.9 = 179.49). With the Upwork client selected, gross
+  // (520 + 200), net (468 + 200) and net EUR stand side by side.
+  await expect(page.getByRole('cell', { name: /Northwind Supply/ }).first().locator('xpath=following-sibling::td[2]')).toHaveText('€600.69')
   await page.getByLabel('Client').selectOption({ label: 'Northwind Supply' })
   const northwind = page.getByTestId('report-group').filter({ hasText: 'Northwind Supply' }).first()
-  await expect(northwind).toContainText('520.00')
-  await expect(northwind).toContainText('468.00')
-  await expect(northwind).toContainText('€421.20')
+  await expect(northwind).toContainText('720.00')
+  await expect(northwind).toContainText('668.00')
+  await expect(northwind).toContainText('€600.69')
   await page.getByLabel('Client').selectOption({ label: 'All clients' })
   await page.getByRole('button', { name: 'Mark billed' }).first().click()
   await expect(page.getByText(/entries marked as billed/)).toBeVisible()

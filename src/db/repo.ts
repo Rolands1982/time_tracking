@@ -329,6 +329,8 @@ export interface Totals {
   estimated: number
   /** Platform entries not yet invoiced by the platform: their fee, and so their net, is an estimate. */
   feeEstimated: number
+  /** Fixed-price work whose hours the user estimated (milestones, bonuses). */
+  estimatedHours: number
 }
 
 /** What is left after platform fees; direct work has none. */
@@ -348,11 +350,12 @@ export function isPlatformClient(c: Pick<Client, 'platform' | 'upworkClientId'> 
 }
 
 export function totals(entries: TimeEntry[]): Totals {
-  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, billedAmountEur: 0, unbilledAmountEur: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0, feeEstimated: 0 }
+  const t: Totals = { count: 0, durationMin: 0, billedMin: 0, nonBillableMin: 0, nonBillableCount: 0, amount: 0, billedAmount: 0, unbilledAmount: 0, billedAmountEur: 0, unbilledAmountEur: 0, unbilledMin: 0, feeAmount: 0, netAmount: 0, netAmountEur: 0, eurMissing: 0, estimated: 0, feeEstimated: 0, estimatedHours: 0 }
   for (const e of entries) {
     t.count++
     t.durationMin += e.durationMin
     t.billedMin += billedMinutes(e)
+    if (e.estimatedHours) t.estimatedHours++
     if (!isBillable(e)) {
       t.nonBillableMin += billedMinutes(e)
       t.nonBillableCount++
