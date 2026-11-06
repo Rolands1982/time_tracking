@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { db } from '../db/schema'
 import { recalculateUpwork, refreshRatesAndRecalculate } from '../lib/upwork/allocate'
 import { importUpwork, isUpworkImportFile, type UpworkImportFile, type UpworkImportReport } from '../lib/upwork/import'
+import { milestonesWithoutHours } from '../lib/upwork/milestones'
 import { formatMoney } from '../lib/time'
 import { pullLatest } from '../sync/pullLatest'
 import { useToast } from './toastContext'
@@ -19,9 +20,12 @@ export default function UpworkImportCard() {
   const stats = useLiveQuery(
     async () => {
       const entries = await db.entries.where('source').equals('upwork').toArray()
-      const txCount = await db.upworkTransactions.count()
+      const txs = await db.upworkTransactions.toArray()
+      const txCount = txs.length
+      const milestones = milestonesWithoutHours(txs, entries, await db.projects.toArray()).length
       const dates = entries.map((e) => e.date).sort()
       return {
+        milestones,
         entries: new Set(dates).size,
         minutes: entries.reduce((s, e) => s + e.durationMin, 0),
         gross: entries.reduce((s, e) => s + e.amount, 0),
@@ -105,6 +109,11 @@ export default function UpworkImportCard() {
         {stats && stats.txCount > 0 && (
           <Link className="btn block" to="/upwork/payouts" data-testid="upwork-payouts">
             Payouts and exchange rates
+          </Link>
+        )}
+        {stats && stats.txCount > 0 && (
+          <Link className="btn block" to="/upwork/milestones" data-testid="upwork-milestones">
+            Milestones and bonuses without hours{stats.milestones > 0 ? ` (${stats.milestones})` : ''}
           </Link>
         )}
         <input key={inputKey} type="file" accept=".json,application/json" onChange={(e) => void onPick(e.target.files?.[0] ?? null)} aria-label="Upwork import file" />

@@ -163,8 +163,10 @@ on a payouts list, with import from a bank/Wise CSV if a sample is available), E
 recalculation, "estimated" badges. Reports and Entries gain a currency switch (USD gross / USD net / EUR net) and
 a fee total; the customer summary stays gross, as Upwork clients see it.
 
-**Stage 3 — Fixed-price milestones (½ session).** The "milestones without hours" list and the entry creation
-flow above; estimated-hours badge; the hours report counts them.
+**Stage 3 — Fixed-price milestones (built).** `src/lib/upwork/milestones.ts` and the Upwork milestones screen (Data →
+"Milestones and bonuses without hours"): one entry per row with the user's hours (0 allowed), keyed
+`upwork:milestone:<txId>`, settled from its own invoice row; the entry form edits the hours of timeless rows;
+Entries and Reports mark estimated hours.
 
 **Stage 4 — Daily automation (½ session, plus secrets on the user's side; built, see `docs/automation/upwork-daily.md`: (a) plus bank credits forwarded by the personal finances app into the `bank_credits` table).**
 a) *Scheduled Claude task:* fires daily with the Upwork connector attached, pulls yesterday's time rows and the

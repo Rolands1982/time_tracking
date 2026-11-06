@@ -4,6 +4,7 @@ import { ToastProvider } from './components/Toast'
 import ClientPage from './pages/ClientPage'
 import ClientsPage from './pages/ClientsPage'
 import DataPage from './pages/DataPage'
+import UpworkMilestonesPage from './pages/UpworkMilestonesPage'
 import UpworkPayoutsPage from './pages/UpworkPayoutsPage'
 import EntriesPage from './pages/EntriesPage'
 import EntryFormPage from './pages/EntryFormPage'
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/clients/:id" element={<ClientPage />} />
             <Route path="/data" element={<DataPage />} />
             <Route path="/upwork/payouts" element={<UpworkPayoutsPage />} />
+            <Route path="/upwork/milestones" element={<UpworkMilestonesPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

@@ -117,6 +117,7 @@ export default function ReportsPage() {
             </div>
             {t.nonBillableMin > 0 && <div className="label">{(t.nonBillableMin / 60).toFixed(2)} non-billable</div>}
             {t.billedMin !== t.durationMin && <div className="label">actual {(t.durationMin / 60).toFixed(2)}</div>}
+            {t.estimatedHours > 0 && <div className="label">{t.estimatedHours} with estimated hours</div>}
           </div>
           {platform && (
             <>

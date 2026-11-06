@@ -9,6 +9,7 @@ import type { Project, TimeEntry, UpworkTransaction } from '../../db/types'
 import { ensureFxRates } from '../fx'
 import { addDays } from '../period'
 import { feePercentFor } from './import'
+import { milestoneTxId } from './keys'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6
@@ -234,7 +235,11 @@ function earningFor(entry: TimeEntry, contractId: string, byContract: Map<string
 export function settleEntry(entry: TimeEntry, earning: Earning | undefined, payoutById: Map<string, Payout>, feePercent: number, estimate: RateEstimate, fallback: RateEstimate = () => undefined): SettlementPatch {
   const gross = entry.amount
   const billing = earning
-    ? { isBilled: true, invoiceDate: earning.tx.date, invoiceRef: `Upwork week ${earning.tx.periodFrom ?? weekStart(entry.date)}` }
+    ? {
+        isBilled: true,
+        invoiceDate: earning.tx.date,
+        invoiceRef: earning.tx.type === 'hourly' ? `Upwork week ${earning.tx.periodFrom ?? weekStart(entry.date)}` : earning.tx.type === 'bonus' ? 'Upwork bonus' : 'Upwork milestone',
+      }
     : { isBilled: false, invoiceDate: undefined, invoiceRef: undefined }
   if (!(gross > 0)) return { feeAmount: 0, netAmount: 0, fxRate: undefined, netAmountEur: 0, settlement: 'actual', payoutId: undefined, ...billing }
   let fee: number
@@ -304,12 +309,15 @@ export function settle({ entries, transactions, projects, feeSchedule, estimate 
   const fallback = payoutRateFallback(payouts)
   const byContract = new Map<string, Earning[]>()
   for (const e of earnings) if (e.tx.contractId) byContract.set(e.tx.contractId, [...(byContract.get(e.tx.contractId) ?? []), e])
+  const byTxId = new Map(earnings.map((e) => [e.tx.txId, e]))
   const contractOfProject = new Map(projects.filter((p) => p.upwork?.contractId).map((p) => [p.id!, p.upwork!.contractId]))
 
   const patches = new Map<number, SettlementPatch>()
   for (const entry of entries) {
+    // A milestone or bonus entry is its invoice row; hourly entries find the week's invoice by contract and date.
+    const milestoneId = milestoneTxId(entry.externalId)
     const contractId = entry.projectId != null ? contractOfProject.get(entry.projectId) : undefined
-    const earning = contractId ? earningFor(entry, contractId, byContract) : undefined
+    const earning = milestoneId ? byTxId.get(milestoneId) : contractId ? earningFor(entry, contractId, byContract) : undefined
     patches.set(entry.id!, settleEntry(entry, earning, payoutById, feePercentFor(entry.date, feeSchedule), estimate, fallback))
   }
   const unpaidNet = round2(earnings.reduce((s, e) => s + e.net - e.payouts.reduce((c, p) => c + p.amount, 0), 0))
