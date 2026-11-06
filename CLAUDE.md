@@ -65,8 +65,8 @@ Conventions that matter:
   (memo id = tail of the MCP row cursor); hours with zero charges import as non-billable; fixed-price milestones
   and bonuses have no hours on Upwork, so the user estimates them on the Upwork milestones screen
   (`src/lib/upwork/milestones.ts`): one entry per row keyed `upwork:milestone:<txId>`, `estimatedHours: true`,
-  gross as invoiced, hours suggested as amount ÷ the client's rate (else 60 USD/h; bonuses 0 h,
-  `suggestedMilestoneHours()`), rate = gross ÷ hours, settled from its own invoice row; projects carry
+  gross as invoiced, hours suggested as amount ÷ the client's rate (else 60 USD/h, `suggestedMilestoneHours()`),
+  rate = gross ÷ hours, settled from its own invoice row; projects carry
   `upwork.contractId`, clients `upworkClientId`. Fee rows reference the *term* id, time rows map term → contract.
   Settlement (`src/lib/upwork/allocate.ts`) is derived from the ledger and cached on the entries: fees link to
   invoices by contract and day, payouts pay the oldest earnings first (FIFO), an entry's `fxRate` is that of the

@@ -165,7 +165,7 @@ a fee total; the customer summary stays gross, as Upwork clients see it.
 
 **Stage 3 — Fixed-price milestones (built).** `src/lib/upwork/milestones.ts` and the Upwork milestones screen (Data →
 "Milestones and bonuses without hours"): one entry per row with the hours suggested from the amount at the client's
-rate (else 60 USD/h; bonuses 0 h) and corrected by the user, keyed
+rate (else 60 USD/h) and corrected by the user, keyed
 `upwork:milestone:<txId>`, settled from its own invoice row; the entry form edits the hours of timeless rows;
 Entries and Reports mark estimated hours.
 
