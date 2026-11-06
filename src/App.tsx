@@ -8,6 +8,7 @@ import UpworkMilestonesPage from './pages/UpworkMilestonesPage'
 import UpworkPayoutsPage from './pages/UpworkPayoutsPage'
 import EntriesPage from './pages/EntriesPage'
 import EntryFormPage from './pages/EntryFormPage'
+import MonthlyReportPage from './pages/MonthlyReportPage'
 import ReportsPage from './pages/ReportsPage'
 import SummaryPage from './pages/SummaryPage'
 import TimerPage from './pages/TimerPage'
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/entries/new" element={<EntryFormPage />} />
             <Route path="/entries/:id" element={<EntryFormPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/reports/monthly" element={<MonthlyReportPage />} />
             <Route path="/summary" element={<SummaryPage />} />
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/:id" element={<ClientPage />} />

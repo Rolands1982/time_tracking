@@ -152,6 +152,9 @@ export default function ReportsPage() {
         <Link className="btn block" to={{ pathname: '/summary', search: new URLSearchParams({ ...periodToParams(period), ...(clientId != null ? { client: String(clientId) } : {}) }).toString() }}>
           Customer summary (Excel / PDF)
         </Link>
+        <Link className="btn block" to={{ pathname: '/reports/monthly', search: new URLSearchParams({ month: period.period === 'month' ? period.anchor.slice(0, 7) : todayIso().slice(0, 7) }).toString() }} data-testid="monthly-report">
+          Monthly hours report (PDF / Excel)
+        </Link>
       </div>
 
       <h2>Open (not yet billed)</h2>

@@ -187,6 +187,14 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByRole('button', { name: 'Mark billed' }).first().click()
   await expect(page.getByText(/entries marked as billed/)).toBeVisible()
 
+  // Monthly hours report: the month's hours, exported as Excel.
+  await page.getByTestId('monthly-report').click()
+  await expect(page.getByRole('heading', { name: 'Monthly hours' })).toBeVisible()
+  await expect(page.getByTestId('monthly-hours')).toHaveText(/^\d+\.\d\d$/)
+  const monthly = page.waitForEvent('download')
+  await page.getByTestId('monthly-xlsx').click()
+  expect((await monthly).suggestedFilename()).toMatch(/^Hours_\d{4}-\d{2}\.xlsx$/)
+
   // Master export downloads an .xlsx file.
   await page.getByRole('link', { name: 'Data' }).click()
   const download = page.waitForEvent('download')
