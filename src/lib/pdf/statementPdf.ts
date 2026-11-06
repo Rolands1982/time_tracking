@@ -5,6 +5,7 @@
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces'
 import { describe, FILTER_LABELS, hours, invoiceText, timeText, type Statement, type StatementColumn, type StatementRow } from '../statement'
 import { formatDate } from '../period'
+import { renderPdf } from './render'
 
 const GREY = '#6b7280'
 const LINE = '#d1d5db'
@@ -152,16 +153,9 @@ export function statementDocDefinition(st: Statement): TDocumentDefinitions {
   }
 }
 
-export const ROBOTO = {
-  Roboto: { normal: 'Roboto-Regular.ttf', bold: 'Roboto-Medium.ttf', italics: 'Roboto-Italic.ttf', bolditalics: 'Roboto-MediumItalic.ttf' },
-}
+export { ROBOTO } from './render'
 
 /** Browser only: load pdfmake and its fonts on demand and render the summary to a Blob. */
-export async function statementPdfBlob(st: Statement): Promise<Blob> {
-  const [pdfModule, vfsModule] = await Promise.all([import('pdfmake/build/pdfmake'), import('pdfmake/build/vfs_fonts')])
-  const pdfMake = (pdfModule as unknown as { default?: typeof pdfModule }).default ?? pdfModule
-  const vfs = (vfsModule as unknown as { default?: Record<string, string> }).default ?? (vfsModule as unknown as Record<string, string>)
-  pdfMake.addVirtualFileSystem(vfs)
-  pdfMake.addFonts(ROBOTO)
-  return pdfMake.createPdf(statementDocDefinition(st)).getBlob()
+export function statementPdfBlob(st: Statement): Promise<Blob> {
+  return renderPdf(statementDocDefinition(st))
 }

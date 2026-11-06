@@ -8,8 +8,9 @@ A mobile-first, offline-capable time tracking PWA for a freelancer: entries per 
 billing status and invoice data; a timer; reports; Excel import of historical sheets; master-file export; optional
 cloud sync to a Supabase (PostgreSQL) project. Published to GitHub Pages from `main`.
 
-Planned next: invoice generation (PDF / e-mail / ERP export), Upwork integration (see `docs/plans/upwork-integration.md`),
-analysis, and the monthly hours report for the tax authority.
+Planned next: invoice generation (PDF / e-mail / ERP export) and analysis. Done: Upwork integration (see
+`docs/plans/upwork-integration.md`) and the monthly hours report (`src/lib/monthlyReport.ts`, built like the
+customer statement: pure data, then Excel and PDF renderers).
 
 ## Workflow rules
 
@@ -39,7 +40,8 @@ src/sync      cloud sync: engine (pull then push), remote interface + Supabase i
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
               summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup,
               upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger)
-src/pages     Timer, Entries, Entry form, Reports, Summary (customer summary → Excel/PDF), Clients, Data
+src/pages     Timer, Entries, Entry form, Reports, Monthly hours report (→ Excel/PDF), Summary (customer summary →
+              Excel/PDF), Clients, Data, Upwork payouts and milestones
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app);
               upwork-merge.ts: merge several Upwork pull files; upwork-assemble.ts: raw connector responses → import
