@@ -9,7 +9,7 @@ billing status and invoice data; a timer; reports; Excel import of historical sh
 cloud sync to a Supabase (PostgreSQL) project. Published to GitHub Pages from `main`.
 
 Planned next: invoice generation (PDF / e-mail / ERP export) and analysis. Done: Upwork integration (see
-`docs/plans/upwork-integration.md`) and the monthly hours report (`src/lib/monthlyReport.ts`, built like the
+`docs/plans/upwork-integration.md`), other income (`src/db/income.ts`) and the monthly hours report (`src/lib/monthlyReport.ts`, built like the
 customer statement: pure data, then Excel and PDF renderers; hours exact and rounded to whole hours per row, the
 rounded total being the sum of the rounded rows).
 
@@ -36,13 +36,15 @@ rounded total being the sum of the rounded rows).
 ## Architecture
 
 ```
-src/db        Dexie (IndexedDB) schema v3, types, repository functions (entries, timer, billing, reporting)
+src/db        Dexie (IndexedDB) schema v4, types, repository functions (entries, timer, billing, reporting,
+              other income in income.ts)
 src/sync      cloud sync: engine (pull then push), remote interface + Supabase implementation, React hook
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
               summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup,
-              upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger)
+              upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger), excel/importOtherIncome.ts
+              (the weekly income workbook)
 src/pages     Timer, Entries, Entry form, Reports, Monthly hours report (→ Excel/PDF), Summary (customer summary →
-              Excel/PDF), Clients, Data, Upwork payouts and milestones
+              Excel/PDF), Other income (rows, add/edit, workbook import), Clients, Data, Upwork payouts and milestones
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app);
               upwork-merge.ts: merge several Upwork pull files; upwork-assemble.ts: raw connector responses → import
@@ -87,6 +89,13 @@ Conventions that matter:
   `feeEstimated` counts platform rows still awaiting their invoice. The customer statement has optional `net` and
   `netEur` columns, on by default for platform clients (`PLATFORM_DEFAULT_COLUMNS`, setting
   `summaryColumnsPlatform`); the master export stays gross.
+- **Other income** (`otherIncome` table, cloud `other_income`): rent, investment returns, sales of goods, social
+  benefits and the rest, in EUR, recorded as of the end of the week (`defaultIncomeDate()` = the Sunday of the
+  current week). Reports adds `incomeTotals()` of the period to the billed work's net EUR as "Total income"; the
+  Other income screen (`/income`) lists, adds and edits rows and imports the weekly income workbook
+  (`parseOtherIncomeWorkbook()`: row 1 dates, month-to-date figures, the rows between the two "Total" rows; each
+  column's increase becomes one row keyed `income:<date>:<label>`, cell notes become the notes). Unknown row
+  labels are reported, not imported.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest; a project may carry a `defaultRate` of its own, and `suggestedRate(client, project, date)`

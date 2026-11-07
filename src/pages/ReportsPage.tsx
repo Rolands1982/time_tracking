@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
 import { groupBy, isBillable, isPlatformClient, setBilled, totals, type Totals } from '../db/repo'
+import { incomeTotals, INCOME_CATEGORIES, INCOME_CATEGORY_KEYS, queryOtherIncome } from '../db/income'
 import { db, updateSettings } from '../db/schema'
-import type { TimeEntry } from '../db/types'
+import type { OtherIncome, TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
-import { periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
+import { periodFromParams, periodLabel as labelFor, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../lib/time'
 
 /**
@@ -18,7 +19,8 @@ import { formatDuration, formatMoney, monthKey, monthLabel, todayIso } from '../
  * side in that client's currency.
  */
 export default function ReportsPage() {
-  const [period, setPeriod] = useState<PeriodState>(() => ({ period: 'month', anchor: todayIso().slice(0, 7), custom: { from: '', to: '' } }))
+  const [params] = useSearchParams()
+  const [period, setPeriod] = useState<PeriodState>(() => periodFromParams((k) => params.get(k), { period: 'month', anchor: todayIso().slice(0, 7), custom: { from: '', to: '' } }))
   const [clientId, setClientId] = useState<number | undefined>()
   const [invoiceDate, setInvoiceDate] = useState(todayIso())
   const { clients, projects, clientName, projectName, clientById } = useLookups()
@@ -46,6 +48,9 @@ export default function ReportsPage() {
     [entries, clientId, includeNonBillable],
   )
   const t = useMemo(() => totals(filtered), [filtered])
+  // Other income (rent, investments…) of the period, so the total income of a week or a month is one figure.
+  const income = useLiveQuery(() => queryOtherIncome(range), [range.from, range.to], [] as OtherIncome[])
+  const inc = useMemo(() => incomeTotals(income), [income])
   const client = clientId != null ? clientById.get(clientId) : undefined
   const platform = isPlatformClient(client)
   const currency = client?.currency || settings.defaultCurrency
@@ -156,6 +161,39 @@ export default function ReportsPage() {
           Monthly hours report (PDF / Excel)
         </Link>
       </div>
+
+      {clientId == null && (
+        <>
+          <h2>Income in the period</h2>
+          <div className="card stack">
+            <table>
+              <tbody>
+                <tr>
+                  <td>Billed work (net EUR)</td>
+                  <td className="num">{formatMoney(t.netAmountEur, 'EUR')}</td>
+                </tr>
+                {INCOME_CATEGORY_KEYS.filter((k) => inc.byCategory[k] !== 0).map((k) => (
+                  <tr key={k}>
+                    <td>{INCOME_CATEGORIES[k]}</td>
+                    <td className="num" data-testid={`report-income-${k}`}>
+                      {formatMoney(inc.byCategory[k], 'EUR')}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="total">
+                  <td>Total income</td>
+                  <td className="num" data-testid="report-total-income">
+                    {formatMoney(t.netAmountEur + inc.total, 'EUR')}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <Link className="btn block" to={{ pathname: '/income', search: new URLSearchParams(periodToParams(period)).toString() }} data-testid="other-income-link">
+              Other income ({inc.count} rows)
+            </Link>
+          </div>
+        </>
+      )}
 
       <h2>Open (not yet billed)</h2>
       <div className="card">

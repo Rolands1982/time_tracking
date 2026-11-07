@@ -39,6 +39,9 @@ and it behaves like a native app, including offline.
   or loaded from a bank statement CSV, matched by date and rate) gives every entry its real exchange rate. Until then entries use the ECB rate of the day and are marked as
   estimates. Reports switch between gross, net after fees and net in EUR. A daily scheduled task can pull Upwork
   and write it into the cloud database unattended (`docs/automation/upwork-daily.md`).
+- **Other income**: rent, investment returns, sales of goods, social benefits and the rest, recorded as of the end
+  of the week; Reports adds them to the billed work for the total income of a week, month or year. The old weekly
+  income workbook (one sheet per month, month-to-date figures per week-end date) can be imported.
 - **Master file export**: one `.xlsx` with every entry and summary sheets (by month, client, client & project,
   invoice, clients).
 - **Backup / restore** as JSON. Data is stored on the device (IndexedDB) and works offline.

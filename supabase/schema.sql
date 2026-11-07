@@ -200,6 +200,34 @@ drop policy if exists "own bank credits" on public.bank_credits;
 create policy "own bank credits" on public.bank_credits for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- ------------------------------------------------------------------ other income
+-- Income that is not billed work (rent, investments, sales, benefits), recorded as of the end of the week so
+-- the app can show the whole income of a period. Synced like the entries; amounts in EUR.
+create table if not exists public.other_income (
+  id            uuid primary key,
+  user_id       uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  date          date not null,
+  category      text not null,
+  amount        numeric(12, 2) not null,
+  currency      text not null default 'EUR',
+  source        text,
+  notes         text not null default '',
+  import_key    text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  synced_at     timestamptz not null default now(),
+  deleted_at    timestamptz
+);
+create index if not exists other_income_user_synced on public.other_income (user_id, synced_at);
+create index if not exists other_income_user_date on public.other_income (user_id, date);
+drop trigger if exists other_income_synced_at on public.other_income;
+create trigger other_income_synced_at before insert or update on public.other_income
+  for each row execute function public.set_synced_at();
+alter table public.other_income enable row level security;
+drop policy if exists "own other income" on public.other_income;
+create policy "own other income" on public.other_income for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 -- ------------------------------------------------------------------ reporting view (Power BI, SQL)
 -- The view is dropped first: "create or replace" cannot insert or reorder columns, and this view grew in
 -- the middle. Nothing depends on it (reporting only), so recreating it is free.

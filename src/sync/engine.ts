@@ -9,8 +9,11 @@
  * ids never leave the device; relations are carried by the UUID `uid`.
  */
 import { db, getSettings, SYNC_TABLES, updateSettings, type TimeTrackingDB } from '../db/schema'
-import type { Client, Project, SyncTable, TimeEntry, RatePeriod, UpworkTransaction, UpworkTxType } from '../db/types'
+import type { Client, IncomeCategory, OtherIncome, Project, SyncTable, TimeEntry, RatePeriod, UpworkTransaction, UpworkTxType } from '../db/types'
+import { INCOME_CATEGORIES } from '../db/income'
 import type { Remote, RemoteRow } from './remote'
+
+type SyncedRow = Client | Project | TimeEntry | UpworkTransaction | OtherIncome
 
 export interface SyncResult {
   pushed: number
@@ -241,6 +244,39 @@ function optNum(v: unknown): number | undefined {
   return v == null ? undefined : num(v)
 }
 
+function incomeToRemote(o: OtherIncome) {
+  return {
+    id: o.uid!,
+    date: o.date,
+    category: o.category,
+    amount: o.amount,
+    currency: o.currency,
+    source: o.source ?? null,
+    notes: o.notes ?? '',
+    import_key: o.importKey ?? null,
+    created_at: o.createdAt,
+    updated_at: o.updatedAt ?? new Date().toISOString(),
+    deleted_at: null,
+  }
+}
+
+function incomeFromRemote(r: RemoteRow): Omit<OtherIncome, 'id'> {
+  const category = String(r.category) as IncomeCategory
+  return {
+    uid: r.id,
+    date: String(r.date),
+    category: category in INCOME_CATEGORIES ? category : 'other',
+    amount: num(r.amount),
+    currency: String(r.currency ?? 'EUR'),
+    source: str(r.source),
+    notes: String(r.notes ?? ''),
+    importKey: str(r.import_key),
+    createdAt: String(r.created_at ?? r.updated_at),
+    updatedAt: r.updated_at,
+    dirty: 0,
+  }
+}
+
 // ---------------------------------------------------------------- engine
 
 export class SyncEngine {
@@ -264,21 +300,22 @@ export class SyncEngine {
 
   async pendingCount(): Promise<number> {
     const d = this.database
-    const [a, b, c, u, t] = await Promise.all([
+    const [a, b, c, u, o, t] = await Promise.all([
       d.clients.where('dirty').equals(1).count(),
       d.projects.where('dirty').equals(1).count(),
       d.entries.where('dirty').equals(1).count(),
       d.upworkTransactions.where('dirty').equals(1).count(),
+      d.otherIncome.where('dirty').equals(1).count(),
       d.tombstones.count(),
     ])
-    return a + b + c + u + t
+    return a + b + c + u + o + t
   }
 
   private async pushDeletes(): Promise<number> {
     const tombstones = await this.database.tombstones.toArray()
     if (!tombstones.length) return 0
     // Children first so the server never sees a dangling reference window.
-    for (const table of ['upworkTransactions', 'entries', 'projects', 'clients'] as SyncTable[]) {
+    for (const table of ['otherIncome', 'upworkTransactions', 'entries', 'projects', 'clients'] as SyncTable[]) {
       const ids = tombstones.filter((t) => t.table === table).map((t) => t.uid)
       if (ids.length) await this.remote.markDeleted(table, ids)
     }
@@ -320,6 +357,12 @@ export class SyncEngine {
       await this.clearDirty('upworkTransactions', txs.map((t) => t.id!))
       pushed += txs.length
     }
+    const income = await d.otherIncome.where('dirty').equals(1).toArray()
+    if (income.length) {
+      await this.remote.upsert('otherIncome', income.map(incomeToRemote))
+      await this.clearDirty('otherIncome', income.map((o) => o.id!))
+      pushed += income.length
+    }
     return pushed
   }
 
@@ -354,7 +397,7 @@ export class SyncEngine {
       const deletedLocally = new Set((await d.tombstones.where('table').equals(table).toArray()).map((t) => t.uid))
       for (const row of rows) {
         if (deletedLocally.has(row.id)) continue
-        const existing = (await d.table(table).where('uid').equals(row.id).first()) as (Client | Project | TimeEntry | UpworkTransaction) | undefined
+        const existing = (await d.table(table).where('uid').equals(row.id).first()) as SyncedRow | undefined
         if (row.deleted_at) {
           if (existing) {
             await d.table(table).delete(existing.id!)
@@ -365,11 +408,13 @@ export class SyncEngine {
         // Local unsynced edit that is newer than the server copy wins; it will be pushed next time.
         if (existing?.dirty === 1 && (existing.updatedAt ?? '') > row.updated_at) continue
 
-        let mapped: Omit<Client, 'id'> | Omit<Project, 'id'> | Omit<TimeEntry, 'id'> | Omit<UpworkTransaction, 'id'>
+        let mapped: Omit<Client, 'id'> | Omit<Project, 'id'> | Omit<TimeEntry, 'id'> | Omit<UpworkTransaction, 'id'> | Omit<OtherIncome, 'id'>
         if (table === 'clients') {
           mapped = clientFromRemote(row)
         } else if (table === 'upworkTransactions') {
           mapped = upworkTxFromRemote(row)
+        } else if (table === 'otherIncome') {
+          mapped = incomeFromRemote(row)
         } else if (table === 'projects') {
           const clientId = clientIdByUid.get(String(row.client_id))
           if (clientId == null) continue

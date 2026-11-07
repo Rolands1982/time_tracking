@@ -9,7 +9,7 @@ import { ingestUpwork } from '../../src/lib/upwork/ingest'
 
 /** In-memory cloud, as in sync.test.ts. */
 class MemoryRemote implements Remote {
-  tables: Record<SyncTable, Map<string, RemoteRow>> = { clients: new Map(), projects: new Map(), entries: new Map(), upworkTransactions: new Map() }
+  tables: Record<SyncTable, Map<string, RemoteRow>> = { clients: new Map(), projects: new Map(), entries: new Map(), upworkTransactions: new Map(), otherIncome: new Map() }
   clock = 0
   private stamp() {
     this.clock++

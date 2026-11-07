@@ -1,9 +1,9 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie'
-import type { Client, Project, Settings, SyncTable, TimeEntry, Tombstone, UpworkTransaction } from './types'
+import type { Client, OtherIncome, Project, Settings, SyncTable, TimeEntry, Tombstone, UpworkTransaction } from './types'
 
-export const SYNC_TABLES: readonly SyncTable[] = ['clients', 'projects', 'entries', 'upworkTransactions']
+export const SYNC_TABLES: readonly SyncTable[] = ['clients', 'projects', 'entries', 'upworkTransactions', 'otherIncome']
 
-type SyncedRow = Client | Project | TimeEntry | UpworkTransaction
+type SyncedRow = Client | Project | TimeEntry | UpworkTransaction | OtherIncome
 
 export function newUid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
@@ -29,6 +29,7 @@ export class TimeTrackingDB extends Dexie {
   settings!: EntityTable<Settings, 'id'>
   tombstones!: EntityTable<Tombstone, 'id'>
   upworkTransactions!: EntityTable<UpworkTransaction, 'id'>
+  otherIncome!: EntityTable<OtherIncome, 'id'>
 
   constructor(name = 'time-tracking') {
     super(name)
@@ -82,6 +83,16 @@ export class TimeTrackingDB extends Dexie {
             Object.assign(e, money)
           })
       })
+    // v4: other income (rent, investments, sales, benefits) next to the billed work.
+    this.version(4).stores({
+      entries: '++id, &uid, dirty, date, clientId, projectId, isBilled, invoiceDate, importKey, externalId, source, [clientId+isBilled]',
+      clients: '++id, &uid, dirty, &name',
+      projects: '++id, &uid, dirty, clientId, [clientId+name]',
+      settings: 'id',
+      tombstones: '++id, table, uid',
+      upworkTransactions: '++id, &uid, dirty, &txId, date, type, contractId',
+      otherIncome: '++id, &uid, dirty, date, category, importKey',
+    })
 
     for (const table of SYNC_TABLES) {
       const t = this.table(table)
@@ -103,7 +114,7 @@ export class TimeTrackingDB extends Dexie {
 
   /** Run `fn` in a read-write transaction whose writes are not marked as local changes. */
   async remoteTransaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
-    return this.transaction('rw', [this.entries, this.clients, this.projects, this.settings, this.tombstones, this.upworkTransactions], async (tx) => {
+    return this.transaction('rw', [this.entries, this.clients, this.projects, this.settings, this.tombstones, this.upworkTransactions, this.otherIncome], async (tx) => {
       REMOTE_TRANSACTIONS.add(tx)
       return fn(tx)
     })

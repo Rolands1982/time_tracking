@@ -155,7 +155,29 @@ export interface UpworkTransaction extends Synced {
   reversed?: boolean
 }
 
-export type SyncTable = 'clients' | 'projects' | 'entries' | 'upworkTransactions'
+export type IncomeCategory = 'rent' | 'investment' | 'sale' | 'benefit' | 'other'
+
+/**
+ * Income that is not billed work: rent, investment returns, sales of goods, social benefits and the rest. Kept
+ * next to the time entries so one screen shows the whole income of a week or a month. Amounts are in EUR.
+ */
+export interface OtherIncome extends Synced {
+  id?: number
+  /** "YYYY-MM-DD": the day the income is recorded as of (the end of the week by convention). */
+  date: string
+  category: IncomeCategory
+  amount: number
+  currency: string
+  /** Where it came from: "Mintos", the tenant, the buyer… */
+  source?: string
+  notes: string
+  /** Stable key of the spreadsheet cell the row came from, so an import can be repeated safely. */
+  importKey?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type SyncTable = 'clients' | 'projects' | 'entries' | 'upworkTransactions' | 'otherIncome'
 
 /** A record deleted locally whose deletion still has to be pushed to the cloud. */
 export interface Tombstone {
