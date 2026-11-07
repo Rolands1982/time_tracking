@@ -225,7 +225,9 @@ export default function IncomePage() {
         <p className="muted small">
           Reads the "one sheet per month" income workbook: dates in row 1, month-to-date figures per row, the other income (Īre,
           Mintos, Citi with details in the cell notes, Pabalsti…) below the clients' Total. Each week's increase is recorded as
-          of the column's date. Rows already imported are skipped, so importing the file again is safe.
+          of the column's date and split by the lines added to the cell note that week: a line with an amount gets it, a line
+          without one gets the rest, and each line its kind (benefit, sale, investment, other) from its words. Weeks whose note
+          does not add up are listed under Warnings. Rows already imported are skipped, so importing the file again is safe.
         </p>
         <input
           key={inputKey}

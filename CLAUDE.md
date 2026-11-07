@@ -94,7 +94,7 @@ Conventions that matter:
   current week). Reports adds `incomeTotals()` of the period to the billed work's net EUR as "Total income"; the
   Other income screen (`/income`) lists, adds and edits rows and imports the weekly income workbook
   (`parseOtherIncomeWorkbook()`: row 1 dates, month-to-date figures, the rows between the two "Total" rows; each
-  column's increase becomes one row keyed `income:<date>:<label>`, cell notes become the notes). Unknown row
+  column's increase becomes one row per new note line, keyed `income:<sheet>!<cell>`). Unknown row
   labels are reported, not imported.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
