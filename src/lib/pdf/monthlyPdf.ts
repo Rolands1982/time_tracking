@@ -18,29 +18,32 @@ export function monthlyDocDefinition(r: MonthlyReport): TDocumentDefinitions {
   const layout = { hLineWidth: (i: number) => (i <= 1 ? 0.8 : 0.3), vLineWidth: () => 0, hLineColor: () => LINE, paddingTop: () => 3, paddingBottom: () => 3 }
 
   const clientBody: TableCell[][] = [
-    [head('Client'), head('Entries', 'right'), head('Hours', 'right'), head('Net EUR', 'right')],
+    [head('Client'), head('Entries', 'right'), head('Hours', 'right'), head('Rounded', 'right'), head('Net EUR', 'right')],
     ...r.rows.map((row) => [
       { text: row.businessName ? `${row.name} (${row.businessName})` : row.name },
       { text: String(row.entries), ...right },
       { text: num(hoursOf(row.minutes)) + (row.estimatedHours ? ' *' : ''), ...right },
+      { text: `${row.wholeHours} h`, ...right },
       { text: eur(row.netEur) + (row.estimated || row.eurMissing ? ' ~' : ''), ...right },
     ]),
     [
       { text: 'Total', style: 'total' },
       { text: String(t.entries), style: 'total', ...right },
       { text: num(hoursOf(t.minutes)), style: 'total', ...right },
+      { text: `${t.wholeHours} h`, style: 'total', ...right },
       { text: eur(t.netEur), style: 'total', ...right },
     ],
   ]
   const dayBody: TableCell[][] = [
-    [head('Date'), head('Hours', 'right'), head('Clients')],
-    ...r.days.map((d) => [{ text: formatDate(d.date) }, { text: num(hoursOf(d.minutes)), ...right }, { text: d.clients.join(', ') }]),
+    [head('Date'), head('Hours', 'right'), head('Rounded', 'right'), head('Clients')],
+    ...r.days.map((d) => [{ text: formatDate(d.date) }, { text: num(hoursOf(d.minutes)), ...right }, { text: `${d.wholeHours} h`, ...right }, { text: d.clients.join(', ') }]),
   ]
 
   const notes = [
     t.estimatedHours ? `* ${t.estimatedHours} ${t.estimatedHours === 1 ? 'entry' : 'entries'} with estimated hours (fixed-price work).` : '',
     t.estimated || t.eurMissing ? `~ ${t.estimated} ${t.estimated === 1 ? 'entry' : 'entries'} with an estimated fee or exchange rate${t.eurMissing ? `, ${t.eurMissing} without a rate (not in the EUR total)` : ''}.` : '',
     t.nonBillableMin ? `${num(hoursOf(t.nonBillableMin))} h of the hours are non-billable work (no money).` : '',
+    'Rounded: whole hours per client or day; the total is their sum.',
   ].filter(Boolean)
 
   const content: Content[] = [
@@ -53,10 +56,10 @@ export function monthlyDocDefinition(r: MonthlyReport): TDocumentDefinitions {
       margin: [0, 0, 0, 16],
     },
     { text: 'By client', style: 'h2', margin: [0, 0, 0, 6] },
-    { table: { headerRows: 1, widths: ['*', 50, 50, 80], body: clientBody }, layout },
+    { table: { headerRows: 1, widths: ['*', 46, 50, 50, 80], body: clientBody }, layout },
     ...(notes.length ? [{ text: notes.join(' '), color: GREY, margin: [0, 8, 0, 0] as [number, number, number, number] }] : []),
     { text: 'By day', style: 'h2', margin: [0, 18, 0, 6] },
-    { table: { headerRows: 1, widths: [70, 50, '*'], body: dayBody, dontBreakRows: true }, layout },
+    { table: { headerRows: 1, widths: [70, 50, 50, '*'], body: dayBody, dontBreakRows: true }, layout },
   ]
 
   return {

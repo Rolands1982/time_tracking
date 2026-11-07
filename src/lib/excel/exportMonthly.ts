@@ -15,8 +15,9 @@ export function buildMonthlyWorkbook(r: MonthlyReport): ExcelJS.Workbook {
   ws.getColumn(1).width = 34
   ws.getColumn(2).width = 10
   ws.getColumn(3).width = 10
-  ws.getColumn(4).width = 16
-  ws.getColumn(5).width = 40
+  ws.getColumn(4).width = 10
+  ws.getColumn(5).width = 16
+  ws.getColumn(6).width = 40
   const t = r.totals
 
   ws.addRow([`Monthly hours report – ${r.label}`]).font = { bold: true, size: 14 }
@@ -30,6 +31,7 @@ export function buildMonthlyWorkbook(r: MonthlyReport): ExcelJS.Workbook {
     return row
   }
   stat('Total hours', hoursOf(t.minutes), '0.00').getCell(2).font = { bold: true, size: 12 }
+  stat('Rounded to whole hours (sum per client)', t.wholeHours)
   stat('Days worked', t.daysWorked)
   stat('Entries', t.entries)
   stat('Net EUR', t.netEur, EUR).getCell(2).font = { bold: true, size: 12 }
@@ -38,7 +40,7 @@ export function buildMonthlyWorkbook(r: MonthlyReport): ExcelJS.Workbook {
   if (t.estimated || t.eurMissing) stat('Entries with an estimated fee or rate / without a rate', `${t.estimated} / ${t.eurMissing}`)
   ws.addRow([])
 
-  const h1 = ws.addRow(['Client', 'Entries', 'Hours', 'Net EUR', 'Note'])
+  const h1 = ws.addRow(['Client', 'Entries', 'Hours', 'Rounded h', 'Net EUR', 'Note'])
   h1.font = { bold: true }
   h1.fill = HEADER_FILL
   const first = h1.number + 1
@@ -46,23 +48,24 @@ export function buildMonthlyWorkbook(r: MonthlyReport): ExcelJS.Workbook {
     const note = [row.platform ? 'Upwork' : '', row.estimatedHours ? `${row.estimatedHours} with estimated hours` : '', row.estimated ? `${row.estimated} estimated` : '', row.eurMissing ? `${row.eurMissing} without a rate` : '']
       .filter(Boolean)
       .join(', ')
-    const x = ws.addRow([row.businessName ? `${row.name} (${row.businessName})` : row.name, row.entries, hoursOf(row.minutes), row.netEur, note])
+    const x = ws.addRow([row.businessName ? `${row.name} (${row.businessName})` : row.name, row.entries, hoursOf(row.minutes), row.wholeHours, row.netEur, note])
     x.getCell(3).numFmt = '0.00'
-    x.getCell(4).numFmt = EUR
+    x.getCell(5).numFmt = EUR
   }
   const last = ws.rowCount
-  const total = ws.addRow(['Total', t.entries, r.rows.length ? { formula: `SUM(C${first}:C${last})`, result: hoursOf(t.minutes) } : 0, r.rows.length ? { formula: `SUM(D${first}:D${last})`, result: t.netEur } : 0])
+  const sum = (col: string, result: number) => (r.rows.length ? { formula: `SUM(${col}${first}:${col}${last})`, result } : 0)
+  const total = ws.addRow(['Total', t.entries, sum('C', hoursOf(t.minutes)), sum('D', t.wholeHours), sum('E', t.netEur)])
   total.font = { bold: true }
   total.fill = TOTAL_FILL
   total.getCell(3).numFmt = '0.00'
-  total.getCell(4).numFmt = EUR
+  total.getCell(5).numFmt = EUR
   ws.addRow([])
 
-  const h2 = ws.addRow(['Date', 'Hours', '', '', 'Clients'])
+  const h2 = ws.addRow(['Date', 'Hours', 'Rounded h', '', '', 'Clients'])
   h2.font = { bold: true }
   h2.fill = HEADER_FILL
   for (const d of r.days) {
-    const x = ws.addRow([new Date(`${d.date}T00:00:00Z`), hoursOf(d.minutes), null, null, d.clients.join(', ')])
+    const x = ws.addRow([new Date(`${d.date}T00:00:00Z`), hoursOf(d.minutes), d.wholeHours, null, null, d.clients.join(', ')])
     x.getCell(1).numFmt = 'dd.mm.yyyy'
     x.getCell(2).numFmt = '0.00'
   }

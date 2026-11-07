@@ -10,7 +10,8 @@ cloud sync to a Supabase (PostgreSQL) project. Published to GitHub Pages from `m
 
 Planned next: invoice generation (PDF / e-mail / ERP export) and analysis. Done: Upwork integration (see
 `docs/plans/upwork-integration.md`) and the monthly hours report (`src/lib/monthlyReport.ts`, built like the
-customer statement: pure data, then Excel and PDF renderers).
+customer statement: pure data, then Excel and PDF renderers; hours exact and rounded to whole hours per row, the
+rounded total being the sum of the rounded rows).
 
 ## Workflow rules
 

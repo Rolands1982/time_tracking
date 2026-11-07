@@ -191,6 +191,7 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByTestId('monthly-report').click()
   await expect(page.getByRole('heading', { name: 'Monthly hours' })).toBeVisible()
   await expect(page.getByTestId('monthly-hours')).toHaveText(/^\d+\.\d\d$/)
+  await expect(page.getByTestId('monthly-whole-hours')).toHaveText(/^\d+ h$/)
   const monthly = page.waitForEvent('download')
   await page.getByTestId('monthly-xlsx').click()
   expect((await monthly).suggestedFilename()).toMatch(/^Hours_\d{4}-\d{2}\.xlsx$/)
