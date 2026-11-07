@@ -88,7 +88,7 @@ const PAGE = 1000
 
 /** Cloud table name for a local sync table. */
 export function remoteTable(table: SyncTable): string {
-  return table === 'upworkTransactions' ? 'upwork_transactions' : table
+  return table === 'upworkTransactions' ? 'upwork_transactions' : table === 'otherIncome' ? 'other_income' : table
 }
 /** UUIDs per delete request: 100 ids are about 4 KB of URL. */
 const DELETE_BATCH = 100

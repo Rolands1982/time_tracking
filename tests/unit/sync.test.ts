@@ -9,7 +9,7 @@ import { findDuplicates, removeDuplicates } from '../../src/db/repo'
 
 /** In-memory stand-in for the Supabase tables, including the server-side synced_at stamp. */
 class MemoryRemote implements Remote {
-  tables: Record<SyncTable, Map<string, RemoteRow>> = { clients: new Map(), projects: new Map(), entries: new Map(), upworkTransactions: new Map() }
+  tables: Record<SyncTable, Map<string, RemoteRow>> = { clients: new Map(), projects: new Map(), entries: new Map(), upworkTransactions: new Map(), otherIncome: new Map() }
   clock = 0
   calls: string[] = []
   private stamp() {

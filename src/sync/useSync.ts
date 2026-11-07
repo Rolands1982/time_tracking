@@ -48,14 +48,15 @@ export async function syncNow(): Promise<SyncResult | null> {
 }
 
 async function pendingCount(): Promise<number> {
-  const [a, b, c, u, t] = await Promise.all([
+  const [a, b, c, u, o, t] = await Promise.all([
     db.clients.where('dirty').equals(1).count(),
     db.projects.where('dirty').equals(1).count(),
     db.entries.where('dirty').equals(1).count(),
     db.upworkTransactions.where('dirty').equals(1).count(),
+    db.otherIncome.where('dirty').equals(1).count(),
     db.tombstones.count(),
   ])
-  return a + b + c + u + t
+  return a + b + c + u + o + t
 }
 
 const AUTO_SYNC_DEBOUNCE_MS = 4000
