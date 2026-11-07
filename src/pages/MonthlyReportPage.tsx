@@ -73,6 +73,7 @@ export default function MonthlyReportPage() {
             <div className="value" data-testid="monthly-hours">
               {hoursOf(t.minutes).toFixed(2)}
             </div>
+            <div className="label">{t.wholeHours} rounded to whole hours</div>
             {t.actualMin !== t.minutes && <div className="label">actual {hoursOf(t.actualMin).toFixed(2)}</div>}
             {t.estimatedHours > 0 && <div className="label">{t.estimatedHours} with estimated hours</div>}
           </div>
@@ -98,7 +99,8 @@ export default function MonthlyReportPage() {
         </div>
         <p className="muted small">
           Hours on the billed basis per client and per day; the money is net in EUR (Upwork work after its fee at the payout's rate, or the ECB rate
-          of the day until paid out). Non-billable work counts in the hours, never in the money.
+          of the day until paid out). Non-billable work counts in the hours, never in the money. Rounded hours are whole hours per client
+          or day; the total is their sum.
         </p>
       </div>
 
@@ -112,6 +114,7 @@ export default function MonthlyReportPage() {
               <tr>
                 <th>Client</th>
                 <th className="num">Hours</th>
+                <th className="num">Rounded</th>
                 <th className="num">Net EUR</th>
               </tr>
             </thead>
@@ -129,12 +132,14 @@ export default function MonthlyReportPage() {
                     )}
                   </td>
                   <td className="num">{formatDuration(r.minutes)}</td>
+                  <td className="num">{r.wholeHours} h</td>
                   <td className="num">{formatMoney(r.netEur, 'EUR')}</td>
                 </tr>
               ))}
               <tr className="total">
                 <td>Total</td>
                 <td className="num">{formatDuration(t.minutes)}</td>
+                <td className="num" data-testid="monthly-whole-hours">{t.wholeHours} h</td>
                 <td className="num">{formatMoney(t.netEur, 'EUR')}</td>
               </tr>
             </tbody>
@@ -151,6 +156,7 @@ export default function MonthlyReportPage() {
                 <tr>
                   <th>Date</th>
                   <th className="num">Hours</th>
+                  <th className="num">Rounded</th>
                   <th>Clients</th>
                 </tr>
               </thead>
@@ -159,6 +165,7 @@ export default function MonthlyReportPage() {
                   <tr key={d.date}>
                     <td className="nowrap">{formatDate(d.date)}</td>
                     <td className="num">{formatDuration(d.minutes)}</td>
+                    <td className="num">{d.wholeHours} h</td>
                     <td>{d.clients.join(', ')}</td>
                   </tr>
                 ))}
