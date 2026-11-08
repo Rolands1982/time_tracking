@@ -41,10 +41,9 @@ src/db        Dexie (IndexedDB) schema v4, types, repository functions (entries,
 src/sync      cloud sync: engine (pull then push), remote interface + Supabase implementation, React hook
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
               summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup,
-              upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger), excel/importOtherIncome.ts
-              (the weekly income workbook)
+              upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger)
 src/pages     Timer, Entries, Entry form, Reports, Monthly hours report (→ Excel/PDF), Summary (customer summary →
-              Excel/PDF), Other income (rows, add/edit, workbook import), Clients, Data, Upwork payouts and milestones
+              Excel/PDF), Other income (rows from the finance app, add/edit by hand), Clients, Data, Upwork payouts and milestones
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app);
               upwork-merge.ts: merge several Upwork pull files; upwork-assemble.ts: raw connector responses → import
@@ -90,12 +89,12 @@ Conventions that matter:
   `netEur` columns, on by default for platform clients (`PLATFORM_DEFAULT_COLUMNS`, setting
   `summaryColumnsPlatform`); the master export stays gross.
 - **Other income** (`otherIncome` table, cloud `other_income`): rent, investment returns, sales of goods, social
-  benefits and the rest, in EUR, recorded as of the end of the week (`defaultIncomeDate()` = the Sunday of the
-  current week). Reports adds `incomeTotals()` of the period to the billed work's net EUR as "Total income"; the
-  Other income screen (`/income`) lists, adds and edits rows and imports the weekly income workbook
-  (`parseOtherIncomeWorkbook()`: row 1 dates, month-to-date figures, the rows between the two "Total" rows; each
-  column's increase becomes one row per new note line, keyed `income:<sheet>!<cell>`). Unknown row
-  labels are reported, not imported.
+  benefits and the rest, in EUR. The source is the owner's personal finances app (repository
+  `personal-finances`, `backend/other_income.py`): every bank sync mirrors its income records into the cloud table
+  with their real date, the app's kind, the category name (`sourceCategory`), party and description, keyed
+  `importKey = pf:<record Id>` with a deterministic row id; salary (Alga) stays out, it is the billed work. Those rows
+  are read-only here (`isFromFinanceApp()`); rows can also be added by hand (`defaultIncomeDate()` = the Sunday of
+  the current week). Reports adds `incomeTotals()` of the period to the billed work's net EUR as "Total income".
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest; a project may carry a `defaultRate` of its own, and `suggestedRate(client, project, date)`

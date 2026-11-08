@@ -201,8 +201,8 @@ create policy "own bank credits" on public.bank_credits for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- ------------------------------------------------------------------ other income
--- Income that is not billed work (rent, investments, sales, benefits), recorded as of the end of the week so
--- the app can show the whole income of a period. Synced like the entries; amounts in EUR.
+-- Income that is not billed work (rent, investments, sales, benefits), so the app can show the whole income of a
+-- period. Synced like the entries; amounts in EUR.
 create table if not exists public.other_income (
   id            uuid primary key,
   user_id       uuid not null default auth.uid() references auth.users (id) on delete cascade,
@@ -212,12 +212,15 @@ create table if not exists public.other_income (
   currency      text not null default 'EUR',
   source        text,
   notes         text not null default '',
+  source_category text,
   import_key    text,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   synced_at     timestamptz not null default now(),
   deleted_at    timestamptz
 );
+-- The personal finances app sends its income records here (category name in source_category, import_key pf:<Id>).
+alter table public.other_income add column if not exists source_category text;
 create index if not exists other_income_user_synced on public.other_income (user_id, synced_at);
 create index if not exists other_income_user_date on public.other_income (user_id, date);
 drop trigger if exists other_income_synced_at on public.other_income;

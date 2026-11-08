@@ -171,7 +171,9 @@ export interface OtherIncome extends Synced {
   /** Where it came from: "Mintos", the tenant, the buyer… */
   source?: string
   notes: string
-  /** Stable key of the spreadsheet cell the row came from, so an import can be repeated safely. */
+  /** The category the personal finances app filed it under ("Dividendes", "Īres maksa"…), when it came from there. */
+  sourceCategory?: string
+  /** "pf:<record Id>" for rows sent by the personal finances app (read-only here: the app is their source). */
   importKey?: string
   createdAt: string
   updatedAt: string

@@ -1,6 +1,7 @@
 /**
- * Other income: rent, investment returns, sales, benefits and the rest, recorded as of the end of a week so a
- * period's total income (billed work net in EUR plus this) can be read off one screen.
+ * Other income: rent, investment returns, sales, benefits and the rest, so a period's total income (billed work net
+ * in EUR plus this) can be read off one screen. The personal finances app sends its income records (with their real
+ * dates and categories, keyed `pf:<record Id>`); rows can also be added by hand.
  */
 import { db, type TimeTrackingDB } from './schema'
 import type { IncomeCategory, OtherIncome } from './types'
@@ -65,28 +66,9 @@ export function defaultIncomeDate(today = todayIso()): string {
   return weekRange(today).to
 }
 
-export interface IncomeImportSummary {
-  added: number
-  duplicates: number
-}
-
-/** Store imported rows, skipping any whose importKey is already present (so a file can be imported again). */
-export async function importOtherIncome(rows: OtherIncomeInput[], database: TimeTrackingDB = db): Promise<IncomeImportSummary> {
-  const keys = rows.map((r) => r.importKey).filter((k): k is string => Boolean(k))
-  const existing = new Set((await database.otherIncome.where('importKey').anyOf(keys).toArray()).map((o) => o.importKey))
-  const seen = new Set<string>()
-  const fresh: OtherIncome[] = []
-  let duplicates = 0
-  for (const r of rows) {
-    if (r.importKey && (existing.has(r.importKey) || seen.has(r.importKey))) {
-      duplicates++
-      continue
-    }
-    if (r.importKey) seen.add(r.importKey)
-    fresh.push(build(r))
-  }
-  if (fresh.length) await database.otherIncome.bulkAdd(fresh)
-  return { added: fresh.length, duplicates }
+/** Rows the personal finances app sent: their source is there, so they are not edited here. */
+export function isFromFinanceApp(row: Pick<OtherIncome, 'importKey'>): boolean {
+  return Boolean(row.importKey?.startsWith('pf:'))
 }
 
 export async function queryOtherIncome(range: { from?: string; to?: string }, database: TimeTrackingDB = db): Promise<OtherIncome[]> {

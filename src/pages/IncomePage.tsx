@@ -7,16 +7,14 @@ import {
   addOtherIncome,
   defaultIncomeDate,
   deleteOtherIncome,
-  importOtherIncome,
   INCOME_CATEGORIES,
   INCOME_CATEGORY_KEYS,
   incomeTotals,
+  isFromFinanceApp,
   queryOtherIncome,
   updateOtherIncome,
-  type IncomeImportSummary,
 } from '../db/income'
 import type { IncomeCategory, OtherIncome } from '../db/types'
-import type { IncomeParseResult } from '../lib/excel/importOtherIncome'
 import { formatDate, periodFromParams, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatMoney, todayIso } from '../lib/time'
 
@@ -32,8 +30,9 @@ interface Draft {
 const emptyDraft = (): Draft => ({ date: defaultIncomeDate(), category: 'rent', amount: '', source: '', notes: '' })
 
 /**
- * Other income (rent, investments, sales, benefits…) recorded as of the end of a week, so Reports can show the
- * whole income of a period: billed work net in EUR plus this.
+ * Other income (rent, investments, sales, benefits…), so Reports can show the whole income of a period: billed work
+ * net in EUR plus this. Most rows come from the personal finances app with their real dates and categories (read-only
+ * here); rows can also be added by hand.
  */
 export default function IncomePage() {
   const [params, setParams] = useSearchParams()
@@ -43,11 +42,16 @@ export default function IncomePage() {
   const range = periodRange(period)
   const rows = useLiveQuery(() => queryOtherIncome(range), [range.from, range.to], [] as OtherIncome[])
   const t = useMemo(() => incomeTotals(rows), [rows])
+  const fromFinanceApp = rows.filter(isFromFinanceApp).length
 
   const [draft, setDraft] = useState<Draft>(emptyDraft)
-  const [busy, setBusy] = useState(false)
-  const edit = (row: OtherIncome) =>
+  const edit = (row: OtherIncome) => {
+    if (isFromFinanceApp(row)) {
+      toast('This row comes from the finance app; change it there')
+      return
+    }
     setDraft({ id: row.id, date: row.date, category: row.category, amount: String(row.amount), source: row.source ?? '', notes: row.notes })
+  }
   const save = async () => {
     const amount = Number(draft.amount.replace(',', '.'))
     if (!draft.date || !Number.isFinite(amount) || amount === 0) {
@@ -72,41 +76,6 @@ export default function IncomePage() {
     toast('Income deleted')
   }
 
-  // Import of the weekly income workbook (one sheet per month, month-to-date figures per week-end date).
-  const [file, setFile] = useState<File | null>(null)
-  const [preview, setPreview] = useState<IncomeParseResult | null>(null)
-  const [summary, setSummary] = useState<IncomeImportSummary | null>(null)
-  const [inputKey, setInputKey] = useState(0)
-  const analyse = async () => {
-    if (!file) return
-    setBusy(true)
-    try {
-      const { parseOtherIncomeWorkbook } = await import('../lib/excel/importOtherIncome')
-      const r = await parseOtherIncomeWorkbook(await file.arrayBuffer())
-      setPreview(r)
-      if (!r.rows.length) toast('No income rows recognised in this file')
-    } catch (err) {
-      toast(`Could not read file: ${(err as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-  const doImport = async () => {
-    if (!preview) return
-    setBusy(true)
-    try {
-      const s = await importOtherIncome(preview.rows)
-      setSummary(s)
-      toast(`Imported ${s.added} income rows${s.duplicates ? `, ${s.duplicates} already present` : ''}`)
-      setPreview(null)
-      setFile(null)
-      setInputKey((k) => k + 1)
-    } finally {
-      setBusy(false)
-    }
-  }
-  const previewTotals = preview ? incomeTotals(preview.rows.map((r) => ({ ...r, notes: r.notes ?? '', currency: 'EUR', createdAt: '', updatedAt: '' }))) : null
-
   return (
     <>
       <div className="topbar">
@@ -124,7 +93,9 @@ export default function IncomePage() {
             <div className="value" data-testid="income-total">
               {formatMoney(t.total, 'EUR')}
             </div>
-            <div className="label">{t.count} rows</div>
+            <div className="label">
+              {t.count} rows{fromFinanceApp ? ` · ${fromFinanceApp} from the finance app` : ''}
+            </div>
           </div>
           {INCOME_CATEGORY_KEYS.filter((k) => t.byCategory[k] !== 0).map((k) => (
             <div className="stat" key={k}>
@@ -134,16 +105,17 @@ export default function IncomePage() {
           ))}
         </div>
         <p className="muted small">
-          Rent, investment returns, sales of goods, social benefits and other income, recorded as of the end of the week they
-          arrived in. Reports adds them to the billed work for the total income of a period.
+          Rent, investment returns, sales of goods, social benefits and other income. The personal finances app sends its income
+          records here on every bank sync, with their real dates, categories and descriptions (salary and Upwork payouts stay
+          out: they are the billed work). Reports adds this to the billed work for the total income of a period.
         </p>
       </div>
 
-      <h2>{draft.id != null ? 'Edit income' : 'Add income'}</h2>
+      <h2>{draft.id != null ? 'Edit income' : 'Add income by hand'}</h2>
       <div className="card stack">
         <div className="grid-2">
           <label className="field">
-            <span>Date (end of the week)</span>
+            <span>Date</span>
             <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} data-testid="income-date" />
           </label>
           <label className="field">
@@ -204,7 +176,7 @@ export default function IncomePage() {
                 <tr key={r.id} onClick={() => edit(r)} style={{ cursor: 'pointer' }} data-testid="income-row">
                   <td className="nowrap">{formatDate(r.date)}</td>
                   <td>
-                    {INCOME_CATEGORIES[r.category] ?? r.category}
+                    {r.sourceCategory ?? INCOME_CATEGORIES[r.category] ?? r.category}
                     {r.source && <span className="muted"> · {r.source}</span>}
                     {r.notes && <div className="muted small">{r.notes}</div>}
                   </td>
@@ -217,64 +189,6 @@ export default function IncomePage() {
               </tr>
             </tbody>
           </table>
-        )}
-      </div>
-
-      <h2>Import the weekly income workbook</h2>
-      <div className="card stack">
-        <p className="muted small">
-          Reads the "one sheet per month" income workbook: dates in row 1, month-to-date figures per row, the other income (Īre,
-          Mintos, Citi with details in the cell notes, Pabalsti…) below the clients' Total. Each week's increase is recorded as
-          of the column's date and split by the lines added to the cell note that week: a line with an amount gets it, a line
-          without one gets the rest, and each line its kind (benefit, sale, investment, other) from its words. Weeks whose note
-          does not add up are listed under Warnings. Rows already imported are skipped, so importing the file again is safe.
-        </p>
-        <input
-          key={inputKey}
-          type="file"
-          accept=".xlsx"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null)
-            setPreview(null)
-            setSummary(null)
-          }}
-          aria-label="Income workbook"
-        />
-        {file && !preview && (
-          <button className="btn primary" onClick={analyse} disabled={busy}>
-            {busy ? 'Reading…' : 'Analyse file'}
-          </button>
-        )}
-        {preview && previewTotals && (
-          <>
-            <p>
-              <strong>{preview.rows.length}</strong> income rows in {preview.sheets.filter((s) => s.rows > 0).length} sheets · {formatMoney(previewTotals.total, 'EUR')}
-              {INCOME_CATEGORY_KEYS.filter((k) => previewTotals.byCategory[k] !== 0).map((k) => ` · ${INCOME_CATEGORIES[k]} ${formatMoney(previewTotals.byCategory[k], 'EUR')}`)}
-            </p>
-            <details>
-              <summary className="small muted">Sheets ({preview.sheets.length})</summary>
-              <pre className="log">{preview.sheets.map((s) => `${s.name}: ${s.rows} rows${s.reason ? ` (${s.reason})` : ''}`).join('\n')}</pre>
-            </details>
-            {preview.warnings.length > 0 && (
-              <details open>
-                <summary className="small muted">Warnings ({preview.warnings.length})</summary>
-                <pre className="log">{preview.warnings.join('\n')}</pre>
-              </details>
-            )}
-            <div className="actions">
-              <button className="btn" onClick={() => setPreview(null)}>
-                Cancel
-              </button>
-              <button className="btn primary" onClick={doImport} disabled={busy || preview.rows.length === 0} data-testid="confirm-income-import">
-                Import {preview.rows.length} rows
-              </button>
-            </div>
-          </>
-        )}
-        {summary && (
-          <p className="small">
-            Imported <strong>{summary.added}</strong> rows ({summary.duplicates} duplicates skipped).
-          </p>
         )}
       </div>
     </>
