@@ -5,7 +5,7 @@ import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
 import { groupBy, isBillable, isPlatformClient, setBilled, totals, type Totals } from '../db/repo'
-import { incomeTotals, queryOtherIncome, typeResolver } from '../db/income'
+import { countResolver, incomeTotals, queryOtherIncome, typeResolver } from '../db/income'
 import { db, updateSettings } from '../db/schema'
 import type { OtherIncome, TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
@@ -53,7 +53,8 @@ export default function ReportsPage() {
   // The owner's types are learned from every row, so rows of this period file themselves like earlier ones.
   const allIncome = useLiveQuery(() => db.otherIncome.toArray(), [], [] as OtherIncome[])
   const incomeType = useMemo(() => typeResolver(allIncome), [allIncome])
-  const inc = useMemo(() => incomeTotals(income, incomeType), [income, incomeType])
+  const incomeCount = useMemo(() => countResolver(allIncome, incomeType), [allIncome, incomeType])
+  const inc = useMemo(() => incomeTotals(income, incomeType, incomeCount), [income, incomeType, incomeCount])
   const client = clientId != null ? clientById.get(clientId) : undefined
   const platform = isPlatformClient(client)
   const currency = client?.currency || settings.defaultCurrency

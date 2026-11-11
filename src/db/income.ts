@@ -137,6 +137,26 @@ export function typeResolver(all: OtherIncome[]): (row: OtherIncome) => string {
     'Other'
 }
 
+/**
+ * The counted amount of every row: the owner's own when set; else 0 for a finance-app row whose type the owner always
+ * counts 0 (at least two rows the owner gave that type adjusted, every one to 0: a new mortgage interest compensation
+ * arrives at 0 like the earlier ones); else the booked amount. Setting one row of such a type to a real amount ends the rule.
+ */
+export function countResolver(all: OtherIncome[], typeOf: (row: OtherIncome) => string = typeResolver(all)): (row: OtherIncome) => number {
+  const stats = new Map<string, { adjusted: number; zeros: number }>()
+  // Only rows the owner typed themselves decide: zeroed rows left without a type would otherwise make the type they
+  // are merely suggested (say, "Sale") look like one the owner never counts.
+  for (const r of all) {
+    if (r.amountOverride == null || r.excluded || !r.type) continue
+    const s = stats.get(r.type) ?? { adjusted: 0, zeros: 0 }
+    s.adjusted++
+    if (r.amountOverride === 0) s.zeros++
+    stats.set(r.type, s)
+  }
+  const zeroTypes = new Set([...stats.entries()].filter(([, s]) => s.adjusted >= 2 && s.zeros === s.adjusted).map(([t]) => t))
+  return (row) => row.amountOverride ?? (isFromFinanceApp(row) && zeroTypes.has(typeOf(row)) ? 0 : row.amount)
+}
+
 /** Every type in use, for the suggestions when typing one. */
 export function knownTypes(all: OtherIncome[], typeOf = typeResolver(all)): string[] {
   return [...new Set(all.map(typeOf))].sort((a, b) => a.localeCompare(b))
@@ -162,11 +182,15 @@ export interface IncomeTotals {
 }
 
 /** A line that adds nothing: left out, or its counted amount is 0. Hidden unless the owner shows them. */
-export function countsNothing(row: Pick<OtherIncome, 'amount' | 'amountOverride' | 'excluded'>): boolean {
-  return Boolean(row.excluded) || countedAmount(row) === 0
+export function countsNothing(row: OtherIncome, countOf: (row: OtherIncome) => number = countedAmount): boolean {
+  return Boolean(row.excluded) || countOf(row) === 0
 }
 
-export function incomeTotals(rows: OtherIncome[], typeOf: (row: OtherIncome) => string = typeResolver(rows)): IncomeTotals {
+export function incomeTotals(
+  rows: OtherIncome[],
+  typeOf: (row: OtherIncome) => string = typeResolver(rows),
+  countOf: (row: OtherIncome) => number = countResolver(rows, typeOf),
+): IncomeTotals {
   const by = new Map<string, { amount: number; count: number }>()
   let total = 0
   let count = 0
@@ -177,7 +201,7 @@ export function incomeTotals(rows: OtherIncome[], typeOf: (row: OtherIncome) => 
       excluded++
       continue
     }
-    const amount = countedAmount(r)
+    const amount = countOf(r)
     if (amount === 0) {
       zero++
       continue
