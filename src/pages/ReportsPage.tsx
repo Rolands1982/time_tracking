@@ -5,7 +5,7 @@ import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import { useLookups, useSettings } from '../db/hooks'
 import { groupBy, isBillable, isPlatformClient, setBilled, totals, type Totals } from '../db/repo'
-import { incomeTotals, INCOME_CATEGORIES, INCOME_CATEGORY_KEYS, queryOtherIncome } from '../db/income'
+import { incomeTotals, queryOtherIncome, typeResolver } from '../db/income'
 import { db, updateSettings } from '../db/schema'
 import type { OtherIncome, TimeEntry } from '../db/types'
 import { downloadBlob, stamp, XLSX_MIME } from '../lib/download'
@@ -50,7 +50,10 @@ export default function ReportsPage() {
   const t = useMemo(() => totals(filtered), [filtered])
   // Other income (rent, investments…) of the period, so the total income of a week or a month is one figure.
   const income = useLiveQuery(() => queryOtherIncome(range), [range.from, range.to], [] as OtherIncome[])
-  const inc = useMemo(() => incomeTotals(income), [income])
+  // The owner's types are learned from every row, so rows of this period file themselves like earlier ones.
+  const allIncome = useLiveQuery(() => db.otherIncome.toArray(), [], [] as OtherIncome[])
+  const incomeType = useMemo(() => typeResolver(allIncome), [allIncome])
+  const inc = useMemo(() => incomeTotals(income, incomeType), [income, incomeType])
   const client = clientId != null ? clientById.get(clientId) : undefined
   const platform = isPlatformClient(client)
   const currency = client?.currency || settings.defaultCurrency
@@ -172,11 +175,11 @@ export default function ReportsPage() {
                   <td>Billed work (net EUR)</td>
                   <td className="num">{formatMoney(t.netAmountEur, 'EUR')}</td>
                 </tr>
-                {INCOME_CATEGORY_KEYS.filter((k) => inc.byCategory[k] !== 0).map((k) => (
-                  <tr key={k}>
-                    <td>{INCOME_CATEGORIES[k]}</td>
-                    <td className="num" data-testid={`report-income-${k}`}>
-                      {formatMoney(inc.byCategory[k], 'EUR')}
+                {inc.byType.map((b) => (
+                  <tr key={b.type}>
+                    <td>{b.type}</td>
+                    <td className="num" data-testid={`report-income-${b.type}`}>
+                      {formatMoney(b.amount, 'EUR')}
                     </td>
                   </tr>
                 ))}
