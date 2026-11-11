@@ -151,12 +151,19 @@ export async function queryOtherIncome(range: { from?: string; to?: string }, da
 }
 
 export interface IncomeTotals {
-  /** Rows that count (excluded ones are not in here). */
+  /** Rows that count something (excluded rows and rows counting 0 are not in here). */
   count: number
   total: number
   /** Per type, largest first. */
   byType: { type: string; amount: number; count: number }[]
   excluded: number
+  /** Rows counting 0 (adjusted to 0), not excluded. */
+  zero: number
+}
+
+/** A line that adds nothing: left out, or its counted amount is 0. Hidden unless the owner shows them. */
+export function countsNothing(row: Pick<OtherIncome, 'amount' | 'amountOverride' | 'excluded'>): boolean {
+  return Boolean(row.excluded) || countedAmount(row) === 0
 }
 
 export function incomeTotals(rows: OtherIncome[], typeOf: (row: OtherIncome) => string = typeResolver(rows)): IncomeTotals {
@@ -164,12 +171,17 @@ export function incomeTotals(rows: OtherIncome[], typeOf: (row: OtherIncome) => 
   let total = 0
   let count = 0
   let excluded = 0
+  let zero = 0
   for (const r of rows) {
     if (r.excluded) {
       excluded++
       continue
     }
     const amount = countedAmount(r)
+    if (amount === 0) {
+      zero++
+      continue
+    }
     const t = typeOf(r)
     const b = by.get(t) ?? { amount: 0, count: 0 }
     b.amount += amount
@@ -180,7 +192,6 @@ export function incomeTotals(rows: OtherIncome[], typeOf: (row: OtherIncome) => 
   }
   const byType = [...by.entries()]
     .map(([type, b]) => ({ type, amount: round2(b.amount), count: b.count }))
-    .filter((b) => b.amount !== 0 || b.count > 0)
     .sort((a, b) => b.amount - a.amount || a.type.localeCompare(b.type))
-  return { count, total: round2(total), byType, excluded }
+  return { count, total: round2(total), byType, excluded, zero }
 }
