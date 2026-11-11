@@ -201,14 +201,14 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByTestId('other-income-link').click()
   await expect(page.getByRole('heading', { name: 'Other income' })).toBeVisible()
   await page.getByTestId('income-date').fill('2026-10-04')
-  await page.getByTestId('income-category').selectOption('rent')
+  await page.getByTestId('income-type').fill('Rent')
   await page.getByTestId('income-amount').fill('320')
   await page.getByTestId('income-save').click()
   await page.getByRole('button', { name: 'All' }).click()
   await expect(page.getByTestId('income-total')).toHaveText(/320/)
   await expect(page.getByTestId('income-row')).toHaveCount(1)
   await page.locator('.topbar').getByRole('link', { name: 'Reports' }).click()
-  await expect(page.getByTestId('report-income-rent')).toHaveText(/320/)
+  await expect(page.getByTestId('report-income-Rent')).toHaveText(/320/)
   await expect(page.getByTestId('report-total-income')).toHaveText(/\d/)
 
   // Master export downloads an .xlsx file.

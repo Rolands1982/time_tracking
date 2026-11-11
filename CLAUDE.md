@@ -92,9 +92,14 @@ Conventions that matter:
   benefits and the rest, in EUR. The source is the owner's personal finances app (repository
   `personal-finances`, `backend/other_income.py`): every bank sync mirrors its income records into the cloud table
   with their real date, the app's kind, the category name (`sourceCategory`), party and description, keyed
-  `importKey = pf:<record Id>` with a deterministic row id; salary (Alga) stays out, it is the billed work. Those rows
-  are read-only here (`isFromFinanceApp()`); rows can also be added by hand (`defaultIncomeDate()` = the Sunday of
-  the current week). Reports adds `incomeTotals()` of the period to the billed work's net EUR as "Total income".
+  `importKey = pf:<record Id>` with a deterministic row id; salary (Alga) stays out, it is the billed work. The
+  owner's own columns are `type` (their category), `amountOverride` (amount to count) and `excluded`: the finance app
+  never sends them in its sync (its `--apply-review` sets them once from the review workbook), so edits made here on
+  finance-app rows (`adjustOtherIncome()`; date, booked amount, party and notes stay the finance app's) survive it.
+  `typeResolver()` gives every row a type: its own, else the one most used for rows of the same finance-app category
+  and kind (excluded rows not counting), else the finance-app category name. Totals use `countedAmount()` and skip
+  excluded rows. Rows can also be added by hand (`defaultIncomeDate()` = the Sunday of the current week). Reports adds
+  `incomeTotals()` of the period, by type, to the billed work's net EUR as "Total income".
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest; a project may carry a `defaultRate` of its own, and `suggestedRate(client, project, date)`

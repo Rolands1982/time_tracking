@@ -5,34 +5,51 @@ import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
 import {
   addOtherIncome,
+  adjustOtherIncome,
+  countedAmount,
   defaultIncomeDate,
   deleteOtherIncome,
-  INCOME_CATEGORIES,
-  INCOME_CATEGORY_KEYS,
   incomeTotals,
   isFromFinanceApp,
+  knownTypes,
   queryOtherIncome,
+  typeResolver,
   updateOtherIncome,
 } from '../db/income'
-import type { IncomeCategory, OtherIncome } from '../db/types'
+import { db } from '../db/schema'
+import type { OtherIncome } from '../db/types'
 import { formatDate, periodFromParams, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatMoney, todayIso } from '../lib/time'
 
-interface Draft {
+/** A row added by hand: everything is editable. */
+interface ManualDraft {
+  mode: 'manual'
   id?: number
   date: string
-  category: IncomeCategory
+  type: string
   amount: string
   source: string
   notes: string
 }
 
-const emptyDraft = (): Draft => ({ date: defaultIncomeDate(), category: 'rent', amount: '', source: '', notes: '' })
+/** A row from the finance app: only the owner's type, counted amount and exclusion are editable here. */
+interface AdjustDraft {
+  mode: 'adjust'
+  row: OtherIncome
+  type: string
+  amount: string
+  excluded: boolean
+}
+
+type Draft = ManualDraft | AdjustDraft
+
+const emptyDraft = (): ManualDraft => ({ mode: 'manual', date: defaultIncomeDate(), type: '', amount: '', source: '', notes: '' })
+const parseAmount = (s: string) => Number(s.replace(',', '.'))
 
 /**
  * Other income (rent, investments, sales, benefits…), so Reports can show the whole income of a period: billed work
- * net in EUR plus this. Most rows come from the personal finances app with their real dates and categories (read-only
- * here); rows can also be added by hand.
+ * net in EUR plus this. Most rows come from the personal finances app on its daily sync; the owner files them under
+ * their own types, adjusts the counted amount or leaves a row out. Rows can also be added by hand.
  */
 export default function IncomePage() {
   const [params, setParams] = useSearchParams()
@@ -41,37 +58,53 @@ export default function IncomePage() {
   const toast = useToast()
   const range = periodRange(period)
   const rows = useLiveQuery(() => queryOtherIncome(range), [range.from, range.to], [] as OtherIncome[])
-  const t = useMemo(() => incomeTotals(rows), [rows])
+  // Types are learned from every row, not only the period's, so a new row files itself like the earlier ones.
+  const all = useLiveQuery(() => db.otherIncome.toArray(), [], [] as OtherIncome[])
+  const typeOf = useMemo(() => typeResolver(all), [all])
+  const types = useMemo(() => knownTypes(all, typeOf), [all, typeOf])
+  const t = useMemo(() => incomeTotals(rows, typeOf), [rows, typeOf])
   const fromFinanceApp = rows.filter(isFromFinanceApp).length
 
   const [draft, setDraft] = useState<Draft>(emptyDraft)
-  const edit = (row: OtherIncome) => {
+  const open = (row: OtherIncome) => {
     if (isFromFinanceApp(row)) {
-      toast('This row comes from the finance app; change it there')
-      return
+      setDraft({ mode: 'adjust', row, type: row.type ?? '', amount: row.amountOverride != null ? String(row.amountOverride) : '', excluded: Boolean(row.excluded) })
+    } else {
+      setDraft({ mode: 'manual', id: row.id, date: row.date, type: typeOf(row), amount: String(row.amount), source: row.source ?? '', notes: row.notes })
     }
-    setDraft({ id: row.id, date: row.date, category: row.category, amount: String(row.amount), source: row.source ?? '', notes: row.notes })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  const save = async () => {
-    const amount = Number(draft.amount.replace(',', '.'))
-    if (!draft.date || !Number.isFinite(amount) || amount === 0) {
+
+  const saveManual = async (d: ManualDraft) => {
+    const amount = parseAmount(d.amount)
+    if (!d.date || !Number.isFinite(amount) || amount === 0) {
       toast('Enter a date and an amount')
       return
     }
-    const input = { date: draft.date, category: draft.category, amount, source: draft.source, notes: draft.notes }
-    if (draft.id != null) {
-      await updateOtherIncome(draft.id, input)
+    const input = { date: d.date, type: d.type, amount, source: d.source, notes: d.notes }
+    if (d.id != null) {
+      await updateOtherIncome(d.id, input)
       toast('Income updated')
     } else {
       await addOtherIncome(input)
       toast('Income added')
     }
-    // Keep the date and the kind for the next row (the current ones, in case they were already changed); clear the rest.
-    setDraft((d) => ({ ...emptyDraft(), date: d.date, category: d.category }))
+    // Keep the date and the type for the next row; clear the rest.
+    setDraft((x) => ({ ...emptyDraft(), date: x.mode === 'manual' ? x.date : defaultIncomeDate(), type: x.type }))
   }
-  const remove = async () => {
-    if (draft.id == null || !confirm('Delete this income row?')) return
-    await deleteOtherIncome(draft.id)
+  const saveAdjust = async (d: AdjustDraft) => {
+    const amount = d.amount.trim() ? parseAmount(d.amount) : undefined
+    if (amount != null && !Number.isFinite(amount)) {
+      toast('Enter a number for the counted amount, or leave it empty')
+      return
+    }
+    await adjustOtherIncome(d.row.id!, { type: d.type, amountOverride: amount, excluded: d.excluded })
+    toast('Income adjusted')
+    setDraft(emptyDraft())
+  }
+  const remove = async (id: number) => {
+    if (!confirm('Delete this income row?')) return
+    await deleteOtherIncome(id)
     setDraft(emptyDraft())
     toast('Income deleted')
   }
@@ -95,68 +128,75 @@ export default function IncomePage() {
             </div>
             <div className="label">
               {t.count} rows{fromFinanceApp ? ` · ${fromFinanceApp} from the finance app` : ''}
+              {t.excluded ? ` · ${t.excluded} excluded` : ''}
             </div>
           </div>
-          {INCOME_CATEGORY_KEYS.filter((k) => t.byCategory[k] !== 0).map((k) => (
-            <div className="stat" key={k}>
-              <div className="label">{INCOME_CATEGORIES[k]}</div>
-              <div className="value">{formatMoney(t.byCategory[k], 'EUR')}</div>
+          {t.byType.map((b) => (
+            <div className="stat" key={b.type}>
+              <div className="label">{b.type}</div>
+              <div className="value">{formatMoney(b.amount, 'EUR')}</div>
             </div>
           ))}
         </div>
         <p className="muted small">
-          Rent, investment returns, sales of goods, social benefits and other income. The personal finances app sends its income
-          records here on every bank sync, with their real dates, categories and descriptions (salary and Upwork payouts stay
-          out: they are the billed work). Reports adds this to the billed work for the total income of a period.
+          The personal finances app sends its income records on every bank sync (salary and client payments stay out: they
+          are the billed work). Tap a row to file it under one of your types, count a different amount or leave it out; the
+          sync never overwrites that. New rows take the type you used most for the same kind of record.
         </p>
       </div>
 
-      <h2>{draft.id != null ? 'Edit income' : 'Add income by hand'}</h2>
-      <div className="card stack">
-        <div className="grid-2">
-          <label className="field">
-            <span>Date</span>
-            <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} data-testid="income-date" />
-          </label>
-          <label className="field">
-            <span>Kind</span>
-            <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value as IncomeCategory })} data-testid="income-category">
-              {INCOME_CATEGORY_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {INCOME_CATEGORIES[k]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Amount (EUR)</span>
-            <input type="number" inputMode="decimal" step="0.01" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} data-testid="income-amount" />
-          </label>
-          <label className="field">
-            <span>Source (Mintos, tenant, buyer…)</span>
-            <input value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value })} />
-          </label>
-        </div>
-        <label className="field">
-          <span>Notes</span>
-          <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
-        </label>
-        <div className="actions">
-          {draft.id != null && (
-            <>
-              <button className="btn danger" onClick={remove}>
-                Delete
+      <datalist id="income-types">
+        {types.map((x) => (
+          <option key={x} value={x} />
+        ))}
+      </datalist>
+
+      {draft.mode === 'adjust' ? (
+        <AdjustCard draft={draft} learned={typeOf({ ...draft.row, type: undefined })} onChange={setDraft} onSave={saveAdjust} onCancel={() => setDraft(emptyDraft())} />
+      ) : (
+        <>
+          <h2>{draft.id != null ? 'Edit income' : 'Add income by hand'}</h2>
+          <div className="card stack">
+            <div className="grid-2">
+              <label className="field">
+                <span>Date</span>
+                <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} data-testid="income-date" />
+              </label>
+              <label className="field">
+                <span>Type</span>
+                <input list="income-types" value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} placeholder="Rent, Investments…" data-testid="income-type" />
+              </label>
+              <label className="field">
+                <span>Amount (EUR)</span>
+                <input type="number" inputMode="decimal" step="0.01" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} data-testid="income-amount" />
+              </label>
+              <label className="field">
+                <span>Source (Mintos, tenant, buyer…)</span>
+                <input value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value })} />
+              </label>
+            </div>
+            <label className="field">
+              <span>Notes</span>
+              <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+            </label>
+            <div className="actions">
+              {draft.id != null && (
+                <>
+                  <button className="btn danger" onClick={() => remove(draft.id!)}>
+                    Delete
+                  </button>
+                  <button className="btn" onClick={() => setDraft(emptyDraft())}>
+                    Cancel
+                  </button>
+                </>
+              )}
+              <button className="btn primary" onClick={() => saveManual(draft)} data-testid="income-save">
+                {draft.id != null ? 'Save changes' : 'Add'}
               </button>
-              <button className="btn" onClick={() => setDraft(emptyDraft())}>
-                Cancel
-              </button>
-            </>
-          )}
-          <button className="btn primary" onClick={save} data-testid="income-save">
-            {draft.id != null ? 'Save changes' : 'Add'}
-          </button>
-        </div>
-      </div>
+            </div>
+          </div>
+        </>
+      )}
 
       <h2>Rows</h2>
       <div className="card">
@@ -167,29 +207,103 @@ export default function IncomePage() {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Kind</th>
+                <th>Type</th>
                 <th className="num">EUR</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} onClick={() => edit(r)} style={{ cursor: 'pointer' }} data-testid="income-row">
-                  <td className="nowrap">{formatDate(r.date)}</td>
-                  <td>
-                    {r.sourceCategory ?? INCOME_CATEGORIES[r.category] ?? r.category}
-                    {r.source && <span className="muted"> · {r.source}</span>}
-                    {r.notes && <div className="muted small">{r.notes}</div>}
-                  </td>
-                  <td className="num">{formatMoney(r.amount, 'EUR')}</td>
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const adjusted = r.amountOverride != null
+                return (
+                  <tr key={r.id} onClick={() => open(r)} style={{ cursor: 'pointer', opacity: r.excluded ? 0.5 : 1 }} data-testid="income-row">
+                    <td className="nowrap">{formatDate(r.date)}</td>
+                    <td>
+                      {typeOf(r)}
+                      {r.excluded && <span className="muted"> · excluded</span>}
+                      {r.source && <span className="muted"> · {r.source}</span>}
+                      {r.notes && <div className="muted small">{r.notes}</div>}
+                      {r.sourceCategory && r.sourceCategory !== typeOf(r) && <div className="muted small">Finance app: {r.sourceCategory}</div>}
+                    </td>
+                    <td className="num">
+                      {formatMoney(countedAmount(r), 'EUR')}
+                      {adjusted && (
+                        <div className="muted small" style={{ textDecoration: 'line-through' }}>
+                          {formatMoney(r.amount, 'EUR')}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
               <tr className="total">
-                <td colSpan={2}>Total</td>
+                <td colSpan={2}>Total{t.excluded ? ' (without excluded rows)' : ''}</td>
                 <td className="num">{formatMoney(t.total, 'EUR')}</td>
               </tr>
             </tbody>
           </table>
         )}
+      </div>
+    </>
+  )
+}
+
+function AdjustCard({
+  draft,
+  learned,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  draft: AdjustDraft
+  learned: string
+  onChange: (d: Draft) => void
+  onSave: (d: AdjustDraft) => void
+  onCancel: () => void
+}) {
+  const r = draft.row
+  return (
+    <>
+      <h2>Adjust income</h2>
+      <div className="card stack" data-testid="income-adjust">
+        <div>
+          <strong>
+            {formatDate(r.date)} · {formatMoney(r.amount, 'EUR')}
+          </strong>
+          {r.source && <span className="muted"> · {r.source}</span>}
+          {r.notes && <div className="muted small">{r.notes}</div>}
+          <div className="muted small">From the finance app{r.sourceCategory ? `: ${r.sourceCategory}` : ''}. Date, amount and description are changed there.</div>
+        </div>
+        <div className="grid-2">
+          <label className="field">
+            <span>Type</span>
+            <input list="income-types" value={draft.type} placeholder={learned} onChange={(e) => onChange({ ...draft, type: e.target.value })} data-testid="adjust-type" />
+          </label>
+          <label className="field">
+            <span>Counted amount (EUR)</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              value={draft.amount}
+              placeholder={String(r.amount)}
+              onChange={(e) => onChange({ ...draft, amount: e.target.value })}
+              data-testid="adjust-amount"
+            />
+          </label>
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={draft.excluded} onChange={(e) => onChange({ ...draft, excluded: e.target.checked })} data-testid="adjust-excluded" />
+          Leave this row out of the income
+        </label>
+        <p className="muted small">Leave Type or Counted amount empty to use the suggestion ({learned}) or the booked amount.</p>
+        <div className="actions">
+          <button className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={() => onSave(draft)} data-testid="adjust-save">
+            Save
+          </button>
+        </div>
       </div>
     </>
   )

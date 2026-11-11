@@ -214,6 +214,9 @@ create table if not exists public.other_income (
   notes         text not null default '',
   source_category text,
   import_key    text,
+  type          text,
+  amount_override numeric(12, 2),
+  excluded      boolean,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   synced_at     timestamptz not null default now(),
@@ -221,6 +224,11 @@ create table if not exists public.other_income (
 );
 -- The personal finances app sends its income records here (category name in source_category, import_key pf:<Id>).
 alter table public.other_income add column if not exists source_category text;
+-- The owner's own columns: category, counted amount, exclusion. The finance app never writes them in its sync, so
+-- they survive it (its --apply-review sets them once from the review workbook).
+alter table public.other_income add column if not exists type text;
+alter table public.other_income add column if not exists amount_override numeric(12, 2);
+alter table public.other_income add column if not exists excluded boolean;
 create index if not exists other_income_user_synced on public.other_income (user_id, synced_at);
 create index if not exists other_income_user_date on public.other_income (user_id, date);
 drop trigger if exists other_income_synced_at on public.other_income;

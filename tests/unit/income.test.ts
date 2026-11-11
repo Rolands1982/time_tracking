@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
-import { addOtherIncome, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, queryOtherIncome, updateOtherIncome } from '../../src/db/income'
+import { addOtherIncome, adjustOtherIncome, countedAmount, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
+import type { OtherIncome } from '../../src/db/types'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
 import { SyncEngine } from '../../src/sync/engine'
@@ -13,26 +14,75 @@ beforeEach(() => {
 })
 
 describe('other income', () => {
-  it('records income as of the end of the week and sums it by kind', async () => {
+  it('records income by hand and sums it by type', async () => {
     expect(defaultIncomeDate('2026-11-04')).toBe('2026-11-08')
     expect(defaultIncomeDate('2026-11-08')).toBe('2026-11-08')
-    const id = await addOtherIncome({ date: '2026-11-08', category: 'rent', amount: 320, notes: ' November ' }, db)
-    await addOtherIncome({ date: '2026-11-08', category: 'investment', amount: 1.945, source: 'Mintos' }, db)
-    await addOtherIncome({ date: '2026-10-31', category: 'other', amount: 60 }, db)
+    const id = await addOtherIncome({ date: '2026-11-08', type: 'Rent ', amount: 320, notes: ' November ' }, db)
+    await addOtherIncome({ date: '2026-11-08', type: 'Investments', amount: 1.945, source: 'Mintos' }, db)
+    await addOtherIncome({ date: '2026-10-31', amount: 60 }, db)
     const row = (await db.otherIncome.get(id))!
-    expect(row).toMatchObject({ currency: 'EUR', notes: 'November', dirty: 1 })
+    expect(row).toMatchObject({ type: 'Rent', category: 'other', currency: 'EUR', notes: 'November', dirty: 1 })
     expect(row.uid).toMatch(/^[0-9a-f-]{36}$/)
 
     const november = await queryOtherIncome({ from: '2026-11-01', to: '2026-11-30' }, db)
     expect(november.map((r) => r.amount)).toEqual([1.95, 320])
-    expect(incomeTotals(november)).toEqual({ count: 2, total: 321.95, byCategory: { rent: 320, investment: 1.95, sale: 0, benefit: 0, other: 0 } })
-    expect(incomeTotals(await queryOtherIncome({}, db)).total).toBe(381.95)
+    expect(incomeTotals(november)).toEqual({
+      count: 2,
+      total: 321.95,
+      excluded: 0,
+      byType: [
+        { type: 'Rent', amount: 320, count: 1 },
+        { type: 'Investments', amount: 1.95, count: 1 },
+      ],
+    })
+    expect(incomeTotals(await queryOtherIncome({}, db)).byType.map((b) => b.type)).toEqual(['Rent', 'Other', 'Investments'])
 
-    await updateOtherIncome(id, { date: '2026-11-08', category: 'rent', amount: 330, notes: '' }, db)
+    await updateOtherIncome(id, { date: '2026-11-08', type: 'Rent', amount: 330, notes: '' }, db)
     expect((await db.otherIncome.get(id))!.amount).toBe(330)
     await deleteOtherIncome(id, db)
     expect(await db.otherIncome.count()).toBe(2)
     expect(await db.tombstones.toArray()).toMatchObject([{ table: 'otherIncome', uid: row.uid }])
+  })
+
+  it('files finance-app rows under the owner\'s types and lets the owner adjust and exclude them', async () => {
+    const pf = (id: number, extra: Partial<OtherIncome>): OtherIncome => ({
+      date: '2026-10-05', category: 'rent', amount: 320, currency: 'EUR', notes: '', sourceCategory: 'Īres maksa', importKey: `pf:${id}`, createdAt: '', updatedAt: '', ...extra,
+    })
+    await db.otherIncome.bulkAdd([
+      pf(1, { type: 'Īre' }),
+      pf(2, { type: 'Īre', date: '2026-09-05' }),
+      pf(3, { date: '2026-11-05' }), // arrived from the daily sync, no type yet
+      pf(4, { category: 'other', sourceCategory: 'Citi ienākumi', amount: 13000, type: 'Apdrošināšana', excluded: true }),
+      pf(5, { category: 'sale', sourceCategory: 'Citi ienākumi', amount: 25 }),
+      pf(6, { category: 'other', sourceCategory: 'Citi ienākumi', amount: 50, type: 'Dāvanas' }),
+    ])
+    const all = await db.otherIncome.toArray()
+    const typeOf = typeResolver(all)
+    const byKey = (k: string) => all.find((r) => r.importKey === k)!
+    expect(typeOf(byKey('pf:3'))).toBe('Īre') // learned from the earlier rent rows
+    expect(typeOf(byKey('pf:5'))).toBe('Dāvanas') // same finance-app category, other kind: the category's most used type; the excluded payout does not teach
+    expect(knownTypes(all, typeOf)).toEqual(['Apdrošināšana', 'Dāvanas', 'Īre'])
+
+    const t = incomeTotals(all, typeOf)
+    expect(t).toMatchObject({ count: 5, excluded: 1, total: 1035 })
+    expect(t.byType).toEqual([
+      { type: 'Īre', amount: 960, count: 3 },
+      { type: 'Dāvanas', amount: 75, count: 2 },
+    ])
+
+    // The owner counts 300 of the rent payment and files the sale; the excluded payout comes back in.
+    const rent = byKey('pf:3')
+    await adjustOtherIncome(rent.id!, { type: 'Īre', amountOverride: 300 }, db)
+    await adjustOtherIncome(byKey('pf:5').id!, { type: 'Pārdošana' }, db)
+    await adjustOtherIncome(byKey('pf:4').id!, { type: 'Apdrošināšana', excluded: false }, db)
+    const after = (await db.otherIncome.get(rent.id!))!
+    expect(after).toMatchObject({ type: 'Īre', amountOverride: 300, amount: 320, dirty: 1, date: '2026-11-05' })
+    expect(countedAmount(after)).toBe(300)
+    expect((await db.otherIncome.get(byKey('pf:4').id!))!.excluded).toBeUndefined()
+
+    // Clearing the adjustment (empty type, the booked amount again) returns to the defaults.
+    await adjustOtherIncome(rent.id!, { type: '', amountOverride: 320 }, db)
+    expect((await db.otherIncome.get(rent.id!))!).toMatchObject({ type: undefined, amountOverride: undefined })
   })
 
   it('syncs income rows, their deletions and the backup', async () => {
@@ -51,23 +101,24 @@ describe('other income', () => {
       },
     }
     const other = new TimeTrackingDB(`income-b-${n}`)
-    const id = await addOtherIncome({ date: '2026-11-08', category: 'benefit', amount: 816, notes: 'VSAA' }, db)
+    const id = await addOtherIncome({ date: '2026-11-08', type: 'Pabalsti', amount: 816, notes: 'VSAA' }, db)
     const a = new SyncEngine(remote, db)
     expect(await a.pendingCount()).toBe(1)
     expect((await a.run()).pushed).toBe(1)
-    expect([...tables.otherIncome.values()][0]).toMatchObject({ date: '2026-11-08', category: 'benefit', amount: 816, currency: 'EUR', notes: 'VSAA', source_category: null, import_key: null })
+    expect([...tables.otherIncome.values()][0]).toMatchObject({ date: '2026-11-08', category: 'other', type: 'Pabalsti', amount: 816, currency: 'EUR', notes: 'VSAA', source_category: null, import_key: null, amount_override: null, excluded: null })
 
     const b = new SyncEngine(remote, other)
     expect((await b.run()).pulled).toBe(1)
-    expect(await other.otherIncome.toArray()).toMatchObject([{ date: '2026-11-08', category: 'benefit', amount: 816, dirty: 0 }])
+    expect(await other.otherIncome.toArray()).toMatchObject([{ date: '2026-11-08', type: 'Pabalsti', amount: 816, dirty: 0 }])
 
     // A row the personal finances app wrote straight into the cloud reaches the devices like any other.
     const pf = { id: '00000000-0000-4000-8000-000000000001', date: '2026-11-03', category: 'investment', amount: 12.5, currency: 'EUR', source: 'Broker', notes: 'Dividend',
-      source_category: 'Dividendes', import_key: 'pf:4711', created_at: '2026-11-03T08:00:00Z', updated_at: '2026-11-03T08:00:00Z', deleted_at: null }
+      source_category: 'Dividendes', import_key: 'pf:4711', type: 'Investīcijas', amount_override: 10, excluded: null, created_at: '2026-11-03T08:00:00Z', updated_at: '2026-11-03T08:00:00Z', deleted_at: null }
     tables.otherIncome.set(pf.id, { ...pf, synced_at: stamp() } as RemoteRow)
     await b.run()
     const pulled = (await other.otherIncome.where('importKey').equals('pf:4711').first())!
-    expect(pulled).toMatchObject({ category: 'investment', amount: 12.5, source: 'Broker', notes: 'Dividend', sourceCategory: 'Dividendes', dirty: 0 })
+    expect(pulled).toMatchObject({ category: 'investment', amount: 12.5, source: 'Broker', notes: 'Dividend', sourceCategory: 'Dividendes', type: 'Investīcijas', amountOverride: 10, dirty: 0 })
+    expect(pulled.excluded).toBeUndefined()
     expect(isFromFinanceApp(pulled)).toBe(true)
     expect(isFromFinanceApp((await other.otherIncome.toArray()).find((o) => !o.importKey)!)).toBe(false)
     expect((await other.otherIncome.toArray()).map((o) => o.amount).sort()).toEqual([12.5, 816])

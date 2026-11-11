@@ -173,8 +173,14 @@ export interface OtherIncome extends Synced {
   notes: string
   /** The category the personal finances app filed it under ("Dividendes", "Īres maksa"…), when it came from there. */
   sourceCategory?: string
-  /** "pf:<record Id>" for rows sent by the personal finances app (read-only here: the app is their source). */
+  /** "pf:<record Id>" for rows sent by the personal finances app (date, amount, party, notes are its own). */
   importKey?: string
+  /** The owner's category (types such as those of the review workbook); the finance app never sets it. */
+  type?: string
+  /** The amount to count instead of the booked one, set by the owner. */
+  amountOverride?: number
+  /** Left out of the totals by the owner (kept, so the daily sync does not bring it back). */
+  excluded?: boolean
   createdAt: string
   updatedAt: string
 }
