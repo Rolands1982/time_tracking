@@ -7,7 +7,7 @@ import { useSettings } from '../db/hooks'
 import {
   addOtherIncome,
   adjustOtherIncome,
-  countedAmount,
+  countResolver,
   countsNothing,
   defaultIncomeDate,
   deleteOtherIncome,
@@ -94,7 +94,9 @@ export default function IncomePage() {
   const all = useLiveQuery(() => db.otherIncome.toArray(), [], [] as OtherIncome[])
   const typeOf = useMemo(() => typeResolver(all), [all])
   const types = useMemo(() => knownTypes(all, typeOf), [all, typeOf])
-  const t = useMemo(() => incomeTotals(rows, typeOf), [rows, typeOf])
+  // Counted amounts are learned too: a new row of a type the owner always counts 0 arrives at 0.
+  const countOf = useMemo(() => countResolver(all, typeOf), [all, typeOf])
+  const t = useMemo(() => incomeTotals(rows, typeOf, countOf), [rows, typeOf, countOf])
   const fromFinanceApp = rows.filter(isFromFinanceApp).length
   // Lines counting 0 are hidden unless the owner shows them; the click applies at once, the setting persists.
   const settings = useSettings()
@@ -104,7 +106,7 @@ export default function IncomePage() {
     setShowZeroOverride(on)
     void updateSettings({ incomeShowZero: on })
   }
-  const visible = useMemo(() => (showZero ? rows : rows.filter((r) => !countsNothing(r))), [rows, showZero])
+  const visible = useMemo(() => (showZero ? rows : rows.filter((r) => !countsNothing(r, countOf))), [rows, showZero, countOf])
   const hiddenCount = rows.length - visible.length
 
   const [draft, setDraft] = useState<Draft>(emptyDraft)
@@ -194,6 +196,7 @@ export default function IncomePage() {
           draft={draft}
           types={types}
           learned={typeOf({ ...draft.row, type: undefined })}
+          learnedAmount={countOf({ ...draft.row, amountOverride: undefined })}
           onChange={setDraft}
           onSave={saveAdjust}
           onCancel={() => setDraft(emptyDraft())}
@@ -264,7 +267,8 @@ export default function IncomePage() {
             </thead>
             <tbody>
               {visible.map((r) => {
-                const adjusted = r.amountOverride != null
+                const counted = countOf(r)
+                const adjusted = counted !== r.amount
                 const editing = draft.mode === 'adjust' ? draft.row.id === r.id : draft.id === r.id
                 return (
                   <tr
@@ -272,7 +276,7 @@ export default function IncomePage() {
                     onClick={() => open(r)}
                     className={editing ? 'editing' : undefined}
                     aria-selected={editing}
-                    style={{ cursor: 'pointer', opacity: countsNothing(r) ? 0.5 : 1 }}
+                    style={{ cursor: 'pointer', opacity: countsNothing(r, countOf) ? 0.5 : 1 }}
                     data-testid="income-row"
                   >
                     <td className="nowrap">{formatDate(r.date)}</td>
@@ -284,7 +288,7 @@ export default function IncomePage() {
                       {r.sourceCategory && r.sourceCategory !== typeOf(r) && <div className="muted small">Finance app: {r.sourceCategory}</div>}
                     </td>
                     <td className="num">
-                      {formatMoney(countedAmount(r), 'EUR')}
+                      {formatMoney(counted, 'EUR')}
                       {adjusted && (
                         <div className="muted small" style={{ textDecoration: 'line-through' }}>
                           {formatMoney(r.amount, 'EUR')}
@@ -310,6 +314,7 @@ function AdjustCard({
   draft,
   types,
   learned,
+  learnedAmount,
   onChange,
   onSave,
   onCancel,
@@ -317,6 +322,7 @@ function AdjustCard({
   draft: AdjustDraft
   types: string[]
   learned: string
+  learnedAmount: number
   onChange: (d: Draft) => void
   onSave: (d: AdjustDraft) => void
   onCancel: () => void
@@ -346,13 +352,16 @@ function AdjustCard({
               inputMode="decimal"
               step="0.01"
               value={draft.amount}
-              placeholder={String(r.amount)}
+              placeholder={String(learnedAmount)}
               onChange={(e) => onChange({ ...draft, amount: e.target.value })}
               data-testid="adjust-amount"
             />
           </label>
         </div>
-        <p className="muted small">Counted amount 0 leaves the row out. Leave it empty to count the booked amount; the type left on "Suggested" follows the suggestion ({learned}).</p>
+        <p className="muted small">
+          Counted amount 0 leaves the row out. Left empty it counts {learnedAmount === r.amount ? 'the booked amount' : `${learnedAmount}, like the other ${learned} rows`}; the type left on
+          "Suggested" follows the suggestion ({learned}).
+        </p>
         <div className="actions">
           <button className="btn" onClick={onCancel}>
             Cancel

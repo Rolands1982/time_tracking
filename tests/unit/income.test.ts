@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
-import { addOtherIncome, adjustOtherIncome, countedAmount, countsNothing, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
+import { addOtherIncome, adjustOtherIncome, countedAmount, countResolver, countsNothing, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
 import type { OtherIncome } from '../../src/db/types'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
@@ -145,6 +145,51 @@ describe('other income', () => {
     await restoreBackup(backup, other)
     expect(await other.otherIncome.count()).toBe(2)
     expect((await other.otherIncome.toArray())[0].dirty).toBe(1)
+  })
+})
+
+describe('learned counted amounts', () => {
+  const row = (id: number, extra: Partial<OtherIncome>): OtherIncome => ({
+    id, date: '2026-10-05', category: 'other', amount: 100, currency: 'EUR', notes: '', sourceCategory: 'Mājokļa kredīts', importKey: `pf:${id}`, createdAt: '', updatedAt: '', ...extra,
+  })
+
+  it('counts a new row 0 when the owner counts every row of its type 0', () => {
+    const all = [
+      row(1, { type: 'Expense compensation', amountOverride: 0 }),
+      row(2, { type: 'Expense compensation', amountOverride: 0 }),
+      row(3, {}), // new from the daily sync: learns the type, and with it the 0
+      row(4, { type: 'Expense compensation', importKey: undefined }), // added by hand: counts what was typed in
+    ]
+    const typeOf = typeResolver(all)
+    const countOf = countResolver(all, typeOf)
+    expect(typeOf(all[2])).toBe('Expense compensation')
+    expect(all.map(countOf)).toEqual([0, 0, 0, 100])
+    expect(countsNothing(all[2], countOf)).toBe(true)
+    expect(incomeTotals(all, typeOf, countOf)).toMatchObject({ count: 1, zero: 3, total: 100 })
+  })
+
+  it('needs two zeroed rows, all zero, typed by the owner', () => {
+    const one = [row(1, { type: 'Gifts', amountOverride: 0, sourceCategory: 'Citi' }), row(2, { type: 'Gifts', sourceCategory: 'Citi' })]
+    expect(countResolver(one)(one[1])).toBe(100)
+
+    const mixed = [
+      row(1, { type: 'Expense compensation', amountOverride: 0 }),
+      row(2, { type: 'Expense compensation', amountOverride: 0 }),
+      row(3, { type: 'Expense compensation', amountOverride: 40 }), // the owner counts one: new rows count again
+      row(4, {}),
+    ]
+    expect(countResolver(mixed)(mixed[3])).toBe(100)
+
+    // Zeroed rows without a type of their own do not make their suggested type a zero type.
+    const citi = [
+      row(1, { type: 'Sale', sourceCategory: 'Citi' }),
+      row(2, { amountOverride: 0, sourceCategory: 'Citi' }),
+      row(3, { amountOverride: 0, sourceCategory: 'Citi' }),
+      row(4, { sourceCategory: 'Citi' }),
+    ]
+    const typeOf = typeResolver(citi)
+    expect(typeOf(citi[3])).toBe('Sale')
+    expect(countResolver(citi, typeOf)(citi[3])).toBe(100)
   })
 })
 
