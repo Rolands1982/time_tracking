@@ -36,7 +36,7 @@ rounded total being the sum of the rounded rows).
 ## Architecture
 
 ```
-src/db        Dexie (IndexedDB) schema v4, types, repository functions (entries, timer, billing, reporting,
+src/db        Dexie (IndexedDB) schema v5, types, repository functions (entries, timer, billing, reporting,
               other income in income.ts)
 src/sync      cloud sync: engine (pull then push), remote interface + Supabase implementation, React hook
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and

@@ -136,3 +136,28 @@ describe('other income', () => {
     expect((await other.otherIncome.toArray())[0].dirty).toBe(1)
   })
 })
+
+describe('upgrade to schema v5', () => {
+  it('pulls the income table again once, keeping the other cursors', async () => {
+    const { default: Dexie } = await import('dexie')
+    const name = `income-upgrade-${n}`
+    // A device on the previous version: income rows pulled without the new columns, cursors past them.
+    const old = new Dexie(name)
+    old.version(4).stores({
+      entries: '++id, &uid, dirty, date, clientId, projectId, isBilled, invoiceDate, importKey, externalId, source, [clientId+isBilled]',
+      clients: '++id, &uid, dirty, &name',
+      projects: '++id, &uid, dirty, clientId, [clientId+name]',
+      settings: 'id',
+      tombstones: '++id, table, uid',
+      upworkTransactions: '++id, &uid, dirty, &txId, date, type, contractId',
+      otherIncome: '++id, &uid, dirty, date, category, importKey',
+    })
+    await old.table('settings').put({ id: 'app', defaultCurrency: 'EUR', sync: { cursors: { entries: '2030-01-01T00:00:01Z', otherIncome: '2030-01-01T00:00:02Z' } } })
+    old.close()
+
+    const upgraded = new TimeTrackingDB(name)
+    const settings = (await upgraded.settings.get('app'))!
+    expect(settings.sync?.cursors).toEqual({ entries: '2030-01-01T00:00:01Z' })
+    upgraded.close()
+  })
+})

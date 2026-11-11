@@ -93,6 +93,15 @@ export class TimeTrackingDB extends Dexie {
       upworkTransactions: '++id, &uid, dirty, &txId, date, type, contractId',
       otherIncome: '++id, &uid, dirty, date, category, importKey',
     })
+    // v5: no index change. Other income rows gained the owner's columns (type, amount_override, excluded) and the
+    // finance app's category; rows pulled by an older version lack them and the cursor is past them, so pull that
+    // table again once.
+    this.version(5)
+      .stores({})
+      .upgrade(async (tx) => {
+        const settings = (await tx.table('settings').get('app')) as Settings | undefined
+        if (settings) await tx.table('settings').put(withoutCursor(settings, 'otherIncome'))
+      })
 
     for (const table of SYNC_TABLES) {
       const t = this.table(table)
@@ -129,6 +138,14 @@ export class TimeTrackingDB extends Dexie {
       if (row.uid) await this.tombstones.add({ table, uid: row.uid })
     })
   }
+}
+
+/** The settings without the pull cursor of one table, so the next sync applies all of that table's cloud rows again. */
+export function withoutCursor(settings: Settings, table: SyncTable): Settings {
+  const cursors = { ...settings.sync?.cursors }
+  if (!(table in cursors)) return settings
+  delete cursors[table]
+  return { ...settings, sync: { ...settings.sync, cursors } }
 }
 
 /** Money columns for work billed directly (no platform): fee 0, net = gross, EUR at rate 1 when the currency is EUR. */
