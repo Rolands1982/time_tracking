@@ -36,7 +36,7 @@ rounded total being the sum of the rounded rows).
 ## Architecture
 
 ```
-src/db        Dexie (IndexedDB) schema v4, types, repository functions (entries, timer, billing, reporting,
+src/db        Dexie (IndexedDB) schema v5, types, repository functions (entries, timer, billing, reporting,
               other income in income.ts)
 src/sync      cloud sync: engine (pull then push), remote interface + Supabase implementation, React hook
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
@@ -97,8 +97,10 @@ Conventions that matter:
   never sends them in its sync (its `--apply-review` sets them once from the review workbook), so edits made here on
   finance-app rows (`adjustOtherIncome()`; date, booked amount, party and notes stay the finance app's) survive it.
   `typeResolver()` gives every row a type: its own, else the one most used for rows of the same finance-app category
-  and kind (excluded rows not counting), else the finance-app category name. Totals use `countedAmount()` and skip
-  excluded rows. Rows can also be added by hand (`defaultIncomeDate()` = the Sunday of the current week). Reports adds
+  and kind (excluded rows not counting), else the finance-app category name. Totals use `countedAmount()`; rows that
+  count nothing (`countsNothing()`: adjusted to 0 or excluded) are left out of totals and hidden on the screen unless
+  `settings.incomeShowZero`. The owner leaves a row out by counting it 0 (there is no per-row exclude switch).
+  The Type field is a full dropdown of `knownTypes()` plus "New type…". Rows can also be added by hand (`defaultIncomeDate()` = the Sunday of the current week). Reports adds
   `incomeTotals()` of the period, by type, to the billed work's net EUR as "Total income".
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`

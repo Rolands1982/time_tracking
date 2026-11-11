@@ -564,3 +564,11 @@ table.preview td.nowrap {
 table.preview td.wrap {
   min-width: 180px;
 }
+
+/* The row being edited (Other income): tinted, with a bar on the left. */
+tr.editing td {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+tr.editing td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary);
+}

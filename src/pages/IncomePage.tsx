@@ -3,10 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useSearchParams } from 'react-router-dom'
 import PeriodPicker from '../components/PeriodPicker'
 import { useToast } from '../components/toastContext'
+import { useSettings } from '../db/hooks'
 import {
   addOtherIncome,
   adjustOtherIncome,
   countedAmount,
+  countsNothing,
   defaultIncomeDate,
   deleteOtherIncome,
   incomeTotals,
@@ -16,7 +18,7 @@ import {
   typeResolver,
   updateOtherIncome,
 } from '../db/income'
-import { db } from '../db/schema'
+import { db, updateSettings } from '../db/schema'
 import type { OtherIncome } from '../db/types'
 import { formatDate, periodFromParams, periodRange, periodToParams, type PeriodState } from '../lib/period'
 import { formatMoney, todayIso } from '../lib/time'
@@ -32,19 +34,49 @@ interface ManualDraft {
   notes: string
 }
 
-/** A row from the finance app: only the owner's type, counted amount and exclusion are editable here. */
+/** A row from the finance app: only the owner's type and counted amount are editable here. */
 interface AdjustDraft {
   mode: 'adjust'
   row: OtherIncome
   type: string
   amount: string
-  excluded: boolean
 }
 
 type Draft = ManualDraft | AdjustDraft
 
 const emptyDraft = (): ManualDraft => ({ mode: 'manual', date: defaultIncomeDate(), type: '', amount: '', source: '', notes: '' })
 const parseAmount = (s: string) => Number(s.replace(',', '.'))
+const NEW_TYPE = '__new__'
+
+/**
+ * Type as a dropdown of every type in use (a text list with suggestions would only offer what matches the text
+ * already in it), with "New type…" for one that does not exist yet. An empty value means the suggestion.
+ */
+function TypeSelect({ value, onChange, types, suggestion, testId }: { value: string; onChange: (v: string) => void; types: string[]; suggestion?: string; testId: string }) {
+  const [custom, setCustom] = useState(() => Boolean(value) && !types.includes(value))
+  return (
+    <>
+      <select
+        value={custom ? NEW_TYPE : value}
+        onChange={(e) => {
+          const v = e.target.value
+          setCustom(v === NEW_TYPE)
+          onChange(v === NEW_TYPE ? '' : v)
+        }}
+        data-testid={testId}
+      >
+        <option value="">{suggestion ? `Suggested: ${suggestion}` : 'Choose a type'}</option>
+        {types.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+        <option value={NEW_TYPE}>New type…</option>
+      </select>
+      {custom && <input autoFocus value={value} placeholder="New type" onChange={(e) => onChange(e.target.value)} data-testid={`${testId}-new`} />}
+    </>
+  )
+}
 
 /**
  * Other income (rent, investments, sales, benefits…), so Reports can show the whole income of a period: billed work
@@ -64,11 +96,21 @@ export default function IncomePage() {
   const types = useMemo(() => knownTypes(all, typeOf), [all, typeOf])
   const t = useMemo(() => incomeTotals(rows, typeOf), [rows, typeOf])
   const fromFinanceApp = rows.filter(isFromFinanceApp).length
+  // Lines counting 0 are hidden unless the owner shows them; the click applies at once, the setting persists.
+  const settings = useSettings()
+  const [showZeroOverride, setShowZeroOverride] = useState<boolean | null>(null)
+  const showZero = showZeroOverride ?? settings.incomeShowZero ?? false
+  const setShowZero = (on: boolean) => {
+    setShowZeroOverride(on)
+    void updateSettings({ incomeShowZero: on })
+  }
+  const visible = useMemo(() => (showZero ? rows : rows.filter((r) => !countsNothing(r))), [rows, showZero])
+  const hiddenCount = rows.length - visible.length
 
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const open = (row: OtherIncome) => {
     if (isFromFinanceApp(row)) {
-      setDraft({ mode: 'adjust', row, type: row.type ?? '', amount: row.amountOverride != null ? String(row.amountOverride) : '', excluded: Boolean(row.excluded) })
+      setDraft({ mode: 'adjust', row, type: row.type ?? '', amount: row.amountOverride != null ? String(row.amountOverride) : '' })
     } else {
       setDraft({ mode: 'manual', id: row.id, date: row.date, type: typeOf(row), amount: String(row.amount), source: row.source ?? '', notes: row.notes })
     }
@@ -98,7 +140,7 @@ export default function IncomePage() {
       toast('Enter a number for the counted amount, or leave it empty')
       return
     }
-    await adjustOtherIncome(d.row.id!, { type: d.type, amountOverride: amount, excluded: d.excluded })
+    await adjustOtherIncome(d.row.id!, { type: d.type, amountOverride: amount, excluded: d.row.excluded })
     toast('Income adjusted')
     setDraft(emptyDraft())
   }
@@ -128,7 +170,7 @@ export default function IncomePage() {
             </div>
             <div className="label">
               {t.count} rows{fromFinanceApp ? ` · ${fromFinanceApp} from the finance app` : ''}
-              {t.excluded ? ` · ${t.excluded} excluded` : ''}
+              {t.zero + t.excluded ? ` · ${t.zero + t.excluded} counting 0` : ''}
             </div>
           </div>
           {t.byType.map((b) => (
@@ -141,18 +183,21 @@ export default function IncomePage() {
         <p className="muted small">
           The personal finances app sends its income records on every bank sync (salary and client payments stay out: they
           are the billed work). Tap a row to file it under one of your types, count a different amount or leave it out; the
-          sync never overwrites that. New rows take the type you used most for the same kind of record.
+          sync never overwrites that. Set the counted amount to 0 to leave a row out. New rows take the type you used most for
+          the same kind of record.
         </p>
       </div>
 
-      <datalist id="income-types">
-        {types.map((x) => (
-          <option key={x} value={x} />
-        ))}
-      </datalist>
-
       {draft.mode === 'adjust' ? (
-        <AdjustCard draft={draft} learned={typeOf({ ...draft.row, type: undefined })} onChange={setDraft} onSave={saveAdjust} onCancel={() => setDraft(emptyDraft())} />
+        <AdjustCard
+          key={draft.row.id}
+          draft={draft}
+          types={types}
+          learned={typeOf({ ...draft.row, type: undefined })}
+          onChange={setDraft}
+          onSave={saveAdjust}
+          onCancel={() => setDraft(emptyDraft())}
+        />
       ) : (
         <>
           <h2>{draft.id != null ? 'Edit income' : 'Add income by hand'}</h2>
@@ -164,7 +209,7 @@ export default function IncomePage() {
               </label>
               <label className="field">
                 <span>Type</span>
-                <input list="income-types" value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} placeholder="Rent, Investments…" data-testid="income-type" />
+                <TypeSelect key={draft.id ?? 'new'} value={draft.type} types={types} onChange={(type) => setDraft({ ...draft, type })} testId="income-type" />
               </label>
               <label className="field">
                 <span>Amount (EUR)</span>
@@ -198,10 +243,16 @@ export default function IncomePage() {
         </>
       )}
 
-      <h2>Rows</h2>
+      <div className="row between">
+        <h2>Rows</h2>
+        <label className="check small">
+          <input type="checkbox" checked={showZero} onChange={(e) => setShowZero(e.target.checked)} data-testid="income-show-zero" />
+          Show lines counting 0{!showZero && hiddenCount ? ` (${hiddenCount})` : ''}
+        </label>
+      </div>
       <div className="card">
-        {rows.length === 0 ? (
-          <p className="muted">No other income in this period.</p>
+        {visible.length === 0 ? (
+          <p className="muted">{rows.length ? 'Every line in this period counts 0.' : 'No other income in this period.'}</p>
         ) : (
           <table>
             <thead>
@@ -212,10 +263,18 @@ export default function IncomePage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {visible.map((r) => {
                 const adjusted = r.amountOverride != null
+                const editing = draft.mode === 'adjust' ? draft.row.id === r.id : draft.id === r.id
                 return (
-                  <tr key={r.id} onClick={() => open(r)} style={{ cursor: 'pointer', opacity: r.excluded ? 0.5 : 1 }} data-testid="income-row">
+                  <tr
+                    key={r.id}
+                    onClick={() => open(r)}
+                    className={editing ? 'editing' : undefined}
+                    aria-selected={editing}
+                    style={{ cursor: 'pointer', opacity: countsNothing(r) ? 0.5 : 1 }}
+                    data-testid="income-row"
+                  >
                     <td className="nowrap">{formatDate(r.date)}</td>
                     <td>
                       {typeOf(r)}
@@ -236,7 +295,7 @@ export default function IncomePage() {
                 )
               })}
               <tr className="total">
-                <td colSpan={2}>Total{t.excluded ? ' (without excluded rows)' : ''}</td>
+                <td colSpan={2}>Total</td>
                 <td className="num">{formatMoney(t.total, 'EUR')}</td>
               </tr>
             </tbody>
@@ -249,12 +308,14 @@ export default function IncomePage() {
 
 function AdjustCard({
   draft,
+  types,
   learned,
   onChange,
   onSave,
   onCancel,
 }: {
   draft: AdjustDraft
+  types: string[]
   learned: string
   onChange: (d: Draft) => void
   onSave: (d: AdjustDraft) => void
@@ -276,7 +337,7 @@ function AdjustCard({
         <div className="grid-2">
           <label className="field">
             <span>Type</span>
-            <input list="income-types" value={draft.type} placeholder={learned} onChange={(e) => onChange({ ...draft, type: e.target.value })} data-testid="adjust-type" />
+            <TypeSelect value={draft.type} types={types} suggestion={learned} onChange={(type) => onChange({ ...draft, type })} testId="adjust-type" />
           </label>
           <label className="field">
             <span>Counted amount (EUR)</span>
@@ -291,11 +352,7 @@ function AdjustCard({
             />
           </label>
         </div>
-        <label className="check">
-          <input type="checkbox" checked={draft.excluded} onChange={(e) => onChange({ ...draft, excluded: e.target.checked })} data-testid="adjust-excluded" />
-          Leave this row out of the income
-        </label>
-        <p className="muted small">Leave Type or Counted amount empty to use the suggestion ({learned}) or the booked amount.</p>
+        <p className="muted small">Counted amount 0 leaves the row out. Leave it empty to count the booked amount; the type left on "Suggested" follows the suggestion ({learned}).</p>
         <div className="actions">
           <button className="btn" onClick={onCancel}>
             Cancel

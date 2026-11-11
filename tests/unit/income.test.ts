@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
-import { addOtherIncome, adjustOtherIncome, countedAmount, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
+import { addOtherIncome, adjustOtherIncome, countedAmount, countsNothing, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
 import type { OtherIncome } from '../../src/db/types'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
@@ -30,6 +30,7 @@ describe('other income', () => {
       count: 2,
       total: 321.95,
       excluded: 0,
+      zero: 0,
       byType: [
         { type: 'Rent', amount: 320, count: 1 },
         { type: 'Investments', amount: 1.95, count: 1 },
@@ -79,6 +80,16 @@ describe('other income', () => {
     expect(after).toMatchObject({ type: 'Īre', amountOverride: 300, amount: 320, dirty: 1, date: '2026-11-05' })
     expect(countedAmount(after)).toBe(300)
     expect((await db.otherIncome.get(byKey('pf:4').id!))!.excluded).toBeUndefined()
+
+    // A line adjusted to 0 counts nothing: hidden by default, not in the row count or the type totals.
+    await adjustOtherIncome(byKey('pf:6').id!, { type: 'Dāvanas', amountOverride: 0 }, db)
+    const zeroed = (await db.otherIncome.get(byKey('pf:6').id!))!
+    expect(countsNothing(zeroed)).toBe(true)
+    expect(countsNothing({ amount: 10, excluded: true })).toBe(true)
+    expect(countsNothing({ amount: 10 })).toBe(false)
+    const now = incomeTotals(await db.otherIncome.toArray(), typeOf)
+    expect(now).toMatchObject({ zero: 1, excluded: 0 })
+    expect(now.byType.find((b) => b.type === 'Dāvanas')).toBeUndefined()
 
     // Clearing the adjustment (empty type, the booked amount again) returns to the defaults.
     await adjustOtherIncome(rent.id!, { type: '', amountOverride: 320 }, db)
@@ -134,5 +145,30 @@ describe('other income', () => {
     await restoreBackup(backup, other)
     expect(await other.otherIncome.count()).toBe(2)
     expect((await other.otherIncome.toArray())[0].dirty).toBe(1)
+  })
+})
+
+describe('upgrade to schema v5', () => {
+  it('pulls the income table again once, keeping the other cursors', async () => {
+    const { default: Dexie } = await import('dexie')
+    const name = `income-upgrade-${n}`
+    // A device on the previous version: income rows pulled without the new columns, cursors past them.
+    const old = new Dexie(name)
+    old.version(4).stores({
+      entries: '++id, &uid, dirty, date, clientId, projectId, isBilled, invoiceDate, importKey, externalId, source, [clientId+isBilled]',
+      clients: '++id, &uid, dirty, &name',
+      projects: '++id, &uid, dirty, clientId, [clientId+name]',
+      settings: 'id',
+      tombstones: '++id, table, uid',
+      upworkTransactions: '++id, &uid, dirty, &txId, date, type, contractId',
+      otherIncome: '++id, &uid, dirty, date, category, importKey',
+    })
+    await old.table('settings').put({ id: 'app', defaultCurrency: 'EUR', sync: { cursors: { entries: '2030-01-01T00:00:01Z', otherIncome: '2030-01-01T00:00:02Z' } } })
+    old.close()
+
+    const upgraded = new TimeTrackingDB(name)
+    const settings = (await upgraded.settings.get('app'))!
+    expect(settings.sync?.cursors).toEqual({ entries: '2030-01-01T00:00:01Z' })
+    upgraded.close()
   })
 })
