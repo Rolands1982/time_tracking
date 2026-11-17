@@ -212,6 +212,8 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await expect(page.getByTestId('employer-hours')).toHaveText(/^\d+$/)
   await page.getByTestId('employer-hours-input').fill('160')
   await expect(page.getByTestId('employer-hours')).toHaveText('160')
+  // The page fits the screen whatever font the machine has (wide fonts once pushed the buttons past the edge).
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   const ddz = page.waitForEvent('download')
   await page.getByTestId('employer-xml').click()
   expect((await ddz).suggestedFilename()).toMatch(/^DDZ_\d{4}-\d{2}\.xml$/)

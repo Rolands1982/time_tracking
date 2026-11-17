@@ -7,7 +7,7 @@ import { totals } from '../db/repo'
 import { db, updateSettings } from '../db/schema'
 import type { TimeEntry } from '../db/types'
 import { downloadBlob } from '../lib/download'
-import { callEds, canSubmit, isSubmitted, messagesOf, type EdsDocument } from '../lib/eds'
+import { callEds, canSubmit, diagnoseEds, isSubmitted, messagesOf, type EdsDiagnosis, type EdsDocument } from '../lib/eds'
 import { buildDdzModel, buildDdzXml, buildEmployerReport, ddzFileName, DEFAULT_ADMIN_HOURS, missingSettings, type EmployerReport, type EmployerSettings } from '../lib/employerReport'
 import { addMonths, formatMoney, monthLabel, monthRange, todayIso } from '../lib/time'
 
@@ -54,6 +54,7 @@ export default function EmployerReportPage() {
   const [doc, setDoc] = useState<EdsDocument | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [diagnosis, setDiagnosis] = useState<EdsDiagnosis | null>(null)
 
   const remember = async (entry: { id: number; hours: number; submitted?: boolean } | null) => {
     if (!employer) return
@@ -87,6 +88,16 @@ export default function EmployerReportPage() {
       setDoc(out.document)
       if (out.warning) setProblem(`Document ${out.documentId} is in EDS, but the check did not run: ${out.warning}`)
       toast(out.created ? `Document ${out.documentId} created in EDS` : `Document ${out.documentId} checked again`)
+    })
+
+  const diagnose = () =>
+    run('diagnose', async () => {
+      const out = await diagnoseEds()
+      if (!out.ok) {
+        setProblem(out.error)
+        return
+      }
+      setDiagnosis(out.diagnosis)
     })
 
   const refresh = () =>
@@ -285,6 +296,31 @@ export default function EmployerReportPage() {
       {problem && (
         <div className="card" data-testid="employer-problem">
           <p style={{ color: 'var(--danger)' }}>{problem}</p>
+          <button className="btn small" onClick={diagnose} disabled={busy != null} data-testid="employer-diagnose">
+            {busy === 'diagnose' ? 'Checking…' : 'Check the EDS connection'}
+          </button>
+        </div>
+      )}
+
+      {diagnosis && (
+        <div className="card stack" data-testid="employer-diagnosis">
+          <strong>
+            EDS connection: {diagnosis.mode === 'key' ? 'API key' : diagnosis.mode === 'certificate' ? 'API certificate' : 'no secrets'}
+          </strong>
+          {diagnosis.facts.map((f) => (
+            <p key={f} className="muted small">
+              {f}
+            </p>
+          ))}
+          {diagnosis.problems.map((p) => (
+            <p key={p} style={{ color: 'var(--danger)' }}>
+              {p}
+            </p>
+          ))}
+          {diagnosis.probe && <p style={{ color: diagnosis.probe.ok ? 'var(--success)' : 'var(--danger)' }}>{diagnosis.probe.message}</p>}
+          <button className="btn small" onClick={diagnose} disabled={busy != null}>
+            {busy === 'diagnose' ? 'Checking…' : 'Check again'}
+          </button>
         </div>
       )}
 

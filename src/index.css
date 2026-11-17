@@ -427,6 +427,9 @@ textarea {
 }
 .actions {
   display: flex;
+  /* Buttons that do not fit side by side go on a row each: they must never make the page wider than the screen,
+     which would push the bottom navigation out of reach. */
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 8px;
 }
