@@ -42,14 +42,15 @@ src/sync      cloud sync: engine (pull then push), remote interface + Supabase i
 src/lib       pure helpers: time/money, periods, customer summary (statement.ts), Excel import & master export and
               summary workbook (ExcelJS, lazy-loaded), PDF summary (pdf/, pdfmake lazy-loaded), JSON backup,
               upwork/ (import of Upwork pulls: contracts, daily time, transaction ledger)
-src/pages     Timer, Entries, Entry form, Reports, Monthly hours report (→ Excel/PDF), Summary (customer summary →
+src/pages     Timer, Entries, Entry form, Reports, Monthly hours report (→ Excel/PDF), Employer's report (→ XML/EDS), Summary (customer summary →
               Excel/PDF), Other income (rows from the finance app, add/edit by hand), Clients, Data, Upwork payouts and milestones
 src/components Bottom navigation, client/project picker, toast, cloud sync card
 scripts       merge-excel.ts: consolidate historical workbooks from the command line (same importer as the app);
               upwork-merge.ts: merge several Upwork pull files; upwork-assemble.ts: raw connector responses → import
               file; upwork-ingest.ts: unattended import into the cloud database (docs/automation/upwork-daily.md)
 supabase      schema.sql: cloud tables, row level security, synced_at trigger, entries_report view;
-              functions/send-mail: Edge Function that e-mails documents through the owner's SMTP mailbox
+              functions/send-mail: Edge Function that e-mails documents through the owner's SMTP mailbox;
+              functions/eds: Edge Function that sends the employer's report to the VID EDS API
 tests/unit    vitest (fake-indexeddb); tests/e2e: Playwright smoke test on a phone viewport
 ```
 
@@ -104,6 +105,16 @@ Conventions that matter:
   `settings.incomeShowZero`. The owner leaves a row out by counting it 0 (there is no per-row exclude switch).
   The Type field is a full dropdown of `knownTypes()` plus "New type…". Rows can also be added by hand (`defaultIncomeDate()` = the Sunday of the current week). Reports adds
   `incomeTotals()` of the period, by type, to the billed work's net EUR as "Total income".
+- **Employer's report** (`src/lib/employerReport.ts`, `/reports/employer`): the monthly Darba devēja ziņojums
+  (EDS document DokDDZv5) of the owner's company, one employee on a fixed gross salary. Hours =
+  `min(round(tracked) + adminHours, norm)`; the norm (`normHours()`) is computed from the Latvian holiday rules and
+  matches the published calendar; `payroll()` works in cents. Company, employee and salary data are personal: they
+  live in `settings.employerReport` on the device (never in code, tests or fixtures; settings do not sync). The
+  document goes out as an XML file (`buildDdzXml()`, the structure EDS exports) or through the `eds` Edge Function
+  (`src/lib/eds.ts`; `buildDdzModel()` uses the API's field names), which holds the EDS API key as a secret. Sending
+  creates and checks; submitting is a separate, confirmed step. The document number per month is remembered in the
+  settings so it is never created twice. The function's request validation (`supabase/functions/eds/validate.ts`)
+  is plain TypeScript shared with the app, like send-mail's.
 - Hourly rates belong to the client and change over time: `client.defaultRate` applies before the first entry of
   `client.rates` (`{ from, rate }`, sorted); `rateFor(client, date)` resolves a date, `effectiveRate(client, date)`
   is what new entries suggest; a project may carry a `defaultRate` of its own, and `suggestedRate(client, project, date)`

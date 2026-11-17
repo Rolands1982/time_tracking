@@ -196,6 +196,26 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByTestId('monthly-xlsx').click()
   expect((await monthly).suggestedFilename()).toMatch(/^Hours_\d{4}-\d{2}\.xlsx$/)
 
+  // Employer's report: company and salary settings, then the month's hours, payroll figures and the XML for EDS.
+  await page.locator('.bottom-nav').getByRole('link', { name: 'Reports' }).click()
+  await page.getByTestId('employer-report').click()
+  await expect(page.getByRole('heading', { name: "Employer's report" })).toBeVisible()
+  await page.getByTestId('employer-taxpayerNo').fill('40000000001')
+  await page.getByTestId('employer-preparedBy').fill('ANNA PARAUGA')
+  await page.getByTestId('employer-personalCode').fill('01010112345')
+  await page.getByTestId('employer-employeeName').fill('ANNA   PARAUGA')
+  await page.getByTestId('employer-gross').fill('1600')
+  await page.getByTestId('employer-dependants').fill('1')
+  await page.getByTestId('employer-save').click()
+  await expect(page.getByTestId('employer-social')).toHaveText(/545\.44/)
+  await page.getByRole('button', { name: 'Next month' }).click() // the month with the entries made above
+  await expect(page.getByTestId('employer-hours')).toHaveText(/^\d+$/)
+  await page.getByTestId('employer-hours-input').fill('160')
+  await expect(page.getByTestId('employer-hours')).toHaveText('160')
+  const ddz = page.waitForEvent('download')
+  await page.getByTestId('employer-xml').click()
+  expect((await ddz).suggestedFilename()).toMatch(/^DDZ_\d{4}-\d{2}\.xml$/)
+
   // Other income: a rent row recorded as of the end of the week, added to the billed work in Reports.
   await page.locator('.bottom-nav').getByRole('link', { name: 'Reports' }).click()
   await page.getByTestId('other-income-link').click()
