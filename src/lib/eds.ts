@@ -45,6 +45,8 @@ async function invoke(request: EdsRequest): Promise<{ ok: true; result: Reply } 
         .then((j: { error?: string; document?: EdsDocument }) => j)
         .catch(() => undefined)
       if (ctx.status === 404) return { ok: false, code: 'not-deployed', error: 'The eds function is not deployed yet (see supabase/functions/README.md)' }
+      // The device still holds a sign-in the server has ended (signed out elsewhere, or expired).
+      if (ctx.status === 401) return { ok: false, code: 'not-signed-in', error: 'The cloud sign-in on this device has ended: sign out and in again on the Data screen, then retry' }
       return { ok: false, code: 'rejected', error: detail?.error ?? `${error.message} (HTTP ${ctx.status})`, document: detail?.document }
     }
     return { ok: false, code: 'network', error: error.message }
