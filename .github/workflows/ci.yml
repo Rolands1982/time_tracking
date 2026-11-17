@@ -39,7 +39,7 @@ jobs:
           CI: 'true'
       - name: Show where the end-to-end test stopped
         if: failure()
-        run: find test-results -name error-context.md -exec cat {} + || true
+        run: find test-results -name error-context.md -exec head -n 60 {} + || true
       - name: Rebuild for Pages
         run: npm run build
         env:
