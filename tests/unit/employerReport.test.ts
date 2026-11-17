@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildDdzModel, buildDdzXml, buildEmployerReport, ddzFileName, easterSunday, holidays, missingSettings, normHours, payroll, reportedHours, type EmployerSettings } from '../../src/lib/employerReport'
-import { canSubmit, isChecked, isSubmitted, messagesOf, tokenMessage, validateEdsRequest } from '../../supabase/functions/eds/validate'
+import { canSubmit, isChecked, isSubmitted, messagesOf, shapeOf, tokenMessage, validateEdsRequest } from '../../supabase/functions/eds/validate'
 
 const settings: EmployerSettings = {
   taxpayerNo: '40000000001', email: 'owner@example.com', phone: '20000000', preparedBy: 'ANNA PARAUGA',
@@ -95,6 +95,7 @@ describe('eds function requests', () => {
   it('accepts the four actions and rejects the rest', () => {
     expect(validateEdsRequest({ action: 'status', documentId: 5 })).toEqual({ ok: true, value: { action: 'status', documentId: 5 } })
     expect(validateEdsRequest({ action: 'send', model, documentId: 7 })).toMatchObject({ ok: true, value: { action: 'send', documentId: 7 } })
+    expect(validateEdsRequest({ action: 'diagnose' })).toEqual({ ok: true, value: { action: 'diagnose' } })
     expect(validateEdsRequest(null)).toMatchObject({ ok: false })
     expect(validateEdsRequest({ action: 'submit' })).toMatchObject({ ok: false, error: expect.stringContaining('documentId') })
     expect(validateEdsRequest({ action: 'delete', documentId: '5' })).toMatchObject({ ok: false })
@@ -103,6 +104,13 @@ describe('eds function requests', () => {
     expect(validateEdsRequest({ action: 'send', model: { ...model, ParskMen: '13' } })).toMatchObject({ ok: false, error: expect.stringContaining('ParskMen') })
     expect(validateEdsRequest({ action: 'send', model: { ...model, Tabula1: [] } })).toMatchObject({ ok: false, error: expect.stringContaining('Tabula1') })
     expect(validateEdsRequest({ action: 'send', model: { ...model, Tabula1: [{ PersonasKods: '1', Stundas: 1000 }] } })).toMatchObject({ ok: false, error: expect.stringContaining('Stundas') })
+  })
+
+  it('describes a credential without giving it away', () => {
+    expect(shapeOf('40000000001')).toBe('40…01 (11 digits)')
+    expect(shapeOf('0f8fad5b-d9cb-469f-a165-70867728950e')).toBe('0f…0e (36 characters, a GUID)')
+    expect(shapeOf('my key')).toBe('… (6 characters)')
+    expect(shapeOf('12345')).toBe('… (5 digits)')
   })
 
   it('reads the state of a document', () => {

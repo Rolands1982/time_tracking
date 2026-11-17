@@ -9,6 +9,8 @@
  *   status  the document's state
  *   submit  submit the document when EDS allows it, wait until it shows as submitted
  *   delete  delete a document that is not submitted
+ *   diagnose  describe the credentials (shapes and lengths, never the secrets) and what EDS answers to a
+ *             harmless authenticated request, to find out why EDS refuses a key or certificate
  *
  * Secrets (Dashboard → Edge Functions → Secrets, or `supabase secrets set`):
  *   EDS_API_KEY        an API key from EDS (IESTATĪJUMI / API atslēgas, scope "Dokumentu API"; up to 90 days)
@@ -22,7 +24,7 @@
  * SUPABASE_URL and SUPABASE_ANON_KEY are provided by the platform.
  */
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { canSubmit, isChecked, isSubmitted, tokenMessage, validateEdsRequest, type EdsDocument } from './validate.ts'
+import { canSubmit, isChecked, isSubmitted, shapeOf, tokenMessage, validateEdsRequest, type EdsDiagnosis, type EdsDocument } from './validate.ts'
 
 const EDS = 'https://eds.vid.gov.lv'
 const CORS = {
@@ -41,18 +43,88 @@ class EdsError extends Error {
   }
 }
 
-/** The value after "Bearer ": the API key, or "<certificate id>:<token signed for today>". */
-async function bearer(): Promise<string> {
-  const key = Deno.env.get('EDS_API_KEY')?.trim()
-  if (key) return key
-  const id = Deno.env.get('EDS_CERT_ID')?.trim()
-  const pkcs8 = Deno.env.get('EDS_CERT_KEY')?.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')
-  const taxpayer = Deno.env.get('EDS_TAXPAYER_NO')?.trim()
-  if (!id || !pkcs8 || !taxpayer) throw new EdsError('Missing secret EDS_API_KEY (or EDS_CERT_ID, EDS_CERT_KEY and EDS_TAXPAYER_NO)', 500)
-  const der = Uint8Array.from(atob(pkcs8), (c) => c.charCodeAt(0))
-  const privateKey = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
-  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, new TextEncoder().encode(tokenMessage(taxpayer, new Date())))
-  return `${id}:${btoa(String.fromCharCode(...new Uint8Array(signature)))}`
+/** The secrets as given, cleaned of the things that creep in when pasting. */
+function credentials() {
+  return {
+    key: Deno.env.get('EDS_API_KEY')?.trim() ?? '',
+    id: Deno.env.get('EDS_CERT_ID')?.trim() ?? '',
+    pkcs8: Deno.env.get('EDS_CERT_KEY')?.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '') ?? '',
+    taxpayer: Deno.env.get('EDS_TAXPAYER_NO')?.trim() ?? '',
+  }
+}
+
+const RSA = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }
+
+function importKey(pkcs8: string, extractable = false): Promise<CryptoKey> {
+  return crypto.subtle.importKey('pkcs8', Uint8Array.from(atob(pkcs8), (ch) => ch.charCodeAt(0)), RSA, extractable, ['sign'])
+}
+
+/**
+ * The value after "Bearer ": the API key, or "<certificate id>:<token signed for today>". The token signs
+ * "<subject>:<yyyy.MM.dd>"; the subject is the taxpayer number.
+ */
+async function bearer(subject?: string): Promise<string> {
+  const c = credentials()
+  if (c.key) return c.key
+  if (!c.id || !c.pkcs8 || !c.taxpayer) throw new EdsError('Missing secret EDS_API_KEY (or EDS_CERT_ID, EDS_CERT_KEY and EDS_TAXPAYER_NO)', 500)
+  const message = new TextEncoder().encode(tokenMessage(subject ?? c.taxpayer, new Date()))
+  const signature = await crypto.subtle.sign(RSA.name, await importKey(c.pkcs8), message)
+  return `${c.id}:${btoa(String.fromCharCode(...new Uint8Array(signature)))}`
+}
+
+/** A harmless authenticated request: the list of documents, one row. */
+async function probe(subject?: string): Promise<{ status: number; text: string }> {
+  const r = await fetch(`${EDS}/api/doc?atgrieztIerakstus=1`, { headers: { Authorization: `Bearer ${await bearer(subject)}`, Accept: 'application/json' } })
+  return { status: r.status, text: r.status < 400 ? '' : (await r.text().catch(() => '')).trim().slice(0, 300) }
+}
+
+/** Shapes and lengths of the credentials, and EDS's answer to the probe. No secret leaves the function. */
+async function diagnose(): Promise<EdsDiagnosis> {
+  const c = credentials()
+  const facts: string[] = []
+  const problems: string[] = []
+  const mode = c.key ? 'key' : c.id || c.pkcs8 || c.taxpayer ? 'certificate' : 'none'
+  if (mode === 'none') problems.push('No secrets found: set EDS_API_KEY, or EDS_CERT_ID, EDS_CERT_KEY and EDS_TAXPAYER_NO')
+  if (mode === 'key') {
+    facts.push(`API key: ${c.key.length} characters`)
+    if (c.id || c.pkcs8) facts.push('EDS_API_KEY is set, so the certificate secrets are not used; delete EDS_API_KEY to use the certificate')
+    if (/\s/.test(c.key)) problems.push('The API key contains spaces or line breaks')
+  }
+  if (mode === 'certificate') {
+    facts.push(`certificate id: ${c.id ? shapeOf(c.id) : 'missing'}`)
+    facts.push(`taxpayer number: ${c.taxpayer ? shapeOf(c.taxpayer) : 'missing'}`)
+    if (!c.id) problems.push('EDS_CERT_ID is missing')
+    else if (/[\s:"']/.test(c.id)) problems.push('The certificate id contains a space, a colon or quotes')
+    if (!c.taxpayer) problems.push('EDS_TAXPAYER_NO is missing')
+    if (!c.pkcs8) problems.push('EDS_CERT_KEY is missing')
+    else {
+      try {
+        const jwk = await crypto.subtle.exportKey('jwk', await importKey(c.pkcs8, true))
+        facts.push(`private key: RSA, about ${Math.round(((jwk.n ?? '').length * 6) / 64) * 64} bits (${c.pkcs8.length} base64 characters)`)
+        facts.push(`token signed for the day ${tokenMessage('', new Date()).slice(1)} (Riga time)`)
+      } catch (err) {
+        problems.push(`EDS_CERT_KEY is not a PKCS#8 RSA private key in base64: ${(err as Error).message || (err as Error).name}`)
+      }
+    }
+  }
+  if (problems.length) return { mode, facts, problems }
+  try {
+    const first = await probe()
+    if (first.status < 400) return { mode, facts, problems, probe: { status: first.status, ok: true, message: 'EDS accepted the credentials' } }
+    const refused = `${HINTS[first.status] ?? `EDS refused the request (${first.status})`}${first.text ? `: ${first.text}` : ''}`
+    // The EDS samples call the signed value "nmr" without saying what it is: on a 401, see whether the certificate's
+    // own id is meant instead of the taxpayer number.
+    if (mode === 'certificate' && first.status === 401) {
+      const second = await probe(c.id)
+      if (second.status < 400) {
+        return { mode, facts, problems, probe: { status: first.status, ok: false, message: 'EDS accepts the token when it signs the certificate id instead of the taxpayer number: set EDS_TAXPAYER_NO to the same value as EDS_CERT_ID' } }
+      }
+      facts.push(`signing the certificate id instead of the taxpayer number: refused too (${second.status})`)
+    }
+    return { mode, facts, problems, probe: { status: first.status, ok: false, message: refused } }
+  } catch (err) {
+    return { mode, facts, problems, probe: { status: 0, ok: false, message: `Could not reach EDS: ${(err as Error).message}` } }
+  }
 }
 
 const HINTS: Record<number, string> = {
@@ -110,6 +182,7 @@ Deno.serve(async (req) => {
 
   // 3. Ask EDS.
   try {
+    if (request.action === 'diagnose') return json({ ok: true, diagnosis: await diagnose() })
     if (request.action === 'send') {
       let id = request.documentId
       let created = false

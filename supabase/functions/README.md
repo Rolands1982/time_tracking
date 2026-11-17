@@ -74,5 +74,7 @@ Instead of a key, an API certificate (its private key is used here to sign a tok
 ### Test
 
 From the app: Reports → Employer's report for VID → Send to EDS and check. Nothing is submitted until
-"Submit to VID" is pressed and confirmed. Errors come back as `{ "error": "..." }`; the function's **Logs**
+"Submit to VID" is pressed and confirmed. When EDS refuses the key or certificate, "Check the EDS connection"
+under the error asks the function what it holds: which kind of credential, the shape of each secret (first and
+last two characters and the length, never the value) and what EDS answers to listing one document. Errors come back as `{ "error": "..." }`; the function's **Logs**
 tab shows which document was created, submitted or deleted.

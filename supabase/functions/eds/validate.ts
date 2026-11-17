@@ -7,6 +7,25 @@
 export type EdsRequest =
   | { action: 'send'; model: Record<string, unknown>; documentId?: number }
   | { action: 'status' | 'submit' | 'delete'; documentId: number }
+  | { action: 'diagnose' }
+
+/** What the function reports about its EDS credentials: shapes and lengths only, never the secrets. */
+export interface EdsDiagnosis {
+  mode: 'key' | 'certificate' | 'none'
+  /** Findings in plain words, e.g. "certificate id: 12…89 (9 digits)". */
+  facts: string[]
+  /** Things that look wrong before EDS is even asked. */
+  problems: string[]
+  /** What EDS answered to a harmless authenticated request (the list of documents, one row). */
+  probe?: { status: number; ok: boolean; message: string }
+}
+
+/** "12…89 (9 digits)": enough to recognise a value, not enough to use it. */
+export function shapeOf(value: string): string {
+  const kind = /^\d+$/.test(value) ? 'digits' : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? 'characters, a GUID' : 'characters'
+  const shown = value.length > 6 ? `${value.slice(0, 2)}…${value.slice(-2)}` : '…'
+  return `${shown} (${value.length} ${kind})`
+}
 
 /** Dokumenta pamatdati of the EDS API (GET /api/doc/{id}); only the fields the app reads. */
 export interface EdsDocument {
@@ -32,7 +51,8 @@ export function validateEdsRequest(input: unknown): Validation {
     if (!isId(b.documentId)) return { ok: false, error: 'documentId: a document number is required' }
     return { ok: true, value: { action: b.action, documentId: b.documentId } }
   }
-  if (b.action !== 'send') return { ok: false, error: 'action: one of send, status, submit, delete' }
+  if (b.action === 'diagnose') return { ok: true, value: { action: 'diagnose' } }
+  if (b.action !== 'send') return { ok: false, error: 'action: one of send, status, submit, delete, diagnose' }
   if (b.documentId != null && !isId(b.documentId)) return { ok: false, error: 'documentId: not a document number' }
   const m = b.model
   if (typeof m !== 'object' || m === null || Array.isArray(m)) return { ok: false, error: 'model: the document is required' }
