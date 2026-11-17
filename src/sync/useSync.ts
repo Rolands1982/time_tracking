@@ -185,7 +185,8 @@ export function useSyncController() {
 
   const signOut = useCallback(async () => {
     const supabase = await getSupabase()
-    await supabase?.auth.signOut()
+    // This device only: the default scope would sign the other devices out as well.
+    await supabase?.auth.signOut({ scope: 'local' })
     setUser(null)
   }, [])
 

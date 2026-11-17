@@ -103,7 +103,9 @@ async function main() {
         .join(' · '),
     )
   } finally {
-    await client.auth.signOut()
+    // Only this run's session: the default scope ends every session of the account, which signs the owner's
+    // phone and computer out of cloud sync each time the script runs.
+    await client.auth.signOut({ scope: 'local' })
   }
 }
 
