@@ -208,41 +208,15 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await page.getByTestId('employer-dependants').fill('1')
   await page.getByTestId('employer-save').click()
   await expect(page.getByTestId('employer-social')).toHaveText(/545\.44/)
-  // TEMPORARY: find out what makes the bottom navigation unclickable on CI's Chrome.
-  const probe = async (label: string) => {
-    const info = await page.evaluate(() => {
-      const link = document.querySelector('.bottom-nav a[href="#/reports"]') as HTMLElement
-      const r = link.getBoundingClientRect()
-      const x = r.left + r.width / 2
-      const y = r.top + r.height / 2
-      const vv = window.visualViewport
-      return {
-        inner: [innerWidth, innerHeight],
-        client: [document.documentElement.clientWidth, document.documentElement.clientHeight],
-        vv: vv && [vv.width, vv.height, vv.offsetLeft, vv.offsetTop, vv.scale],
-        scroll: [scrollX, scrollY, document.documentElement.scrollHeight],
-        link: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
-        at: document.elementsFromPoint(x, y).map((e) => `${e.tagName}.${e.className}`),
-        active: document.activeElement?.tagName,
-        visibility: document.visibilityState,
-        focus: document.hasFocus(),
-        frames: window.frames.length,
-      }
-    })
-    console.log(`PROBE ${label}`, JSON.stringify(info), 'pages', page.context().pages().length, 'frames', page.frames().map((f) => f.url()).join(' | '))
-  }
-  await probe('after save')
   await page.getByRole('button', { name: 'Next month' }).click() // the month with the entries made above
   await expect(page.getByTestId('employer-hours')).toHaveText(/^\d+$/)
   await page.getByTestId('employer-hours-input').fill('160')
   await expect(page.getByTestId('employer-hours')).toHaveText('160')
-  await probe('after hours')
+  // The page fits the screen whatever font the machine has (wide fonts once pushed the buttons past the edge).
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   const ddz = page.waitForEvent('download')
   await page.getByTestId('employer-xml').click()
   expect((await ddz).suggestedFilename()).toMatch(/^DDZ_\d{4}-\d{2}\.xml$/)
-  await probe('after download')
-  await page.waitForTimeout(4500)
-  await probe('after toast')
 
   // Other income: a rent row recorded as of the end of the week, added to the billed work in Reports.
   await page.locator('.bottom-nav').getByRole('link', { name: 'Reports' }).click()

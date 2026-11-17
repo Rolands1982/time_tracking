@@ -151,9 +151,7 @@ export default function EmployerReportPage() {
 
   const downloadXml = () => {
     if (!employer || !report) return
-    // Handed over as a plain file: a blob the browser could render (XML) is treated as a page to open first, and
-    // newer Chrome leaves the app unresponsive after that download.
-    downloadBlob(buildDdzXml(employer, report), ddzFileName(month), 'application/octet-stream')
+    downloadBlob(buildDdzXml(employer, report), ddzFileName(month), 'application/xml')
   }
 
   const found = messagesOf(doc)
