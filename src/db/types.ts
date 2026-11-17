@@ -227,6 +227,8 @@ export interface Settings {
   reportsIncludeNonBillable?: boolean
   /** Other income: also list the lines that count 0 (zeroed or excluded). */
   incomeShowZero?: boolean
+  /** Monthly employer's report: company, employee and salary data, and the EDS documents created (lib/employerReport.ts). */
+  employerReport?: import('../lib/employerReport').EmployerSettings
   /** E-mail preferences for documents sent from the app. */
   mail?: { signature?: string; copyToSender?: boolean }
   /** Upwork: fee percent to estimate with until the real fee row arrives (sorted by `from`), and cached ECB USD→EUR rates per day. */

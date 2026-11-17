@@ -164,6 +164,9 @@ export default function ReportsPage() {
         <Link className="btn block" to={{ pathname: '/reports/monthly', search: new URLSearchParams({ month: period.period === 'month' ? period.anchor.slice(0, 7) : todayIso().slice(0, 7) }).toString() }} data-testid="monthly-report">
           Monthly hours report (PDF / Excel)
         </Link>
+        <Link className="btn block" to="/reports/employer" data-testid="employer-report">
+          Employer's report for VID (EDS)
+        </Link>
       </div>
 
       {clientId == null && (
