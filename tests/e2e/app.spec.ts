@@ -276,33 +276,40 @@ test('track time with the timer, add an entry, import Excel and see reports', as
 
   // A line the finance app sent (written straight into the database, as the sync would) waits on the Data screen,
   // counted on the navigation, until its type and amount are approved.
-  await page.evaluate(async () => {
+  await page.evaluate(async (month) => {
     const idb = await new Promise<IDBDatabase>((resolve, reject) => {
       const r = indexedDB.open('time-tracking')
       r.onsuccess = () => resolve(r.result)
       r.onerror = () => reject(r.error)
     })
     const tx = idb.transaction('otherIncome', 'readwrite')
-    tx.objectStore('otherIncome').add({
-      date: '2026-11-12', category: 'rent', amount: 200, currency: 'EUR', notes: '', source: 'TENANT ONE', sourceCategory: 'Īres maksa',
-      importKey: 'pf:900', uid: '00000000-0000-4000-8000-000000000900', dirty: 0, createdAt: '', updatedAt: '',
-    })
+    const line = { category: 'rent', currency: 'EUR', notes: '', sourceCategory: 'Īres maksa', dirty: 0, createdAt: '', updatedAt: '' }
+    const store = tx.objectStore('otherIncome')
+    store.add({ ...line, date: `${month}-12`, amount: 200, source: 'TENANT ONE', importKey: 'pf:900', uid: '00000000-0000-4000-8000-000000000900' })
+    store.add({ ...line, date: `${month}-16`, amount: 120, source: 'TENANT TWO', importKey: 'pf:901', uid: '00000000-0000-4000-8000-000000000901' })
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
     })
     idb.close()
-  })
+  }, ym)
   await page.locator('.bottom-nav').getByRole('link', { name: /Data/ }).click()
   await page.reload()
-  await expect(page.getByTestId('nav-review-count')).toHaveText('1')
-  const line = page.getByTestId('income-review-row')
-  await expect(line).toContainText('TENANT ONE')
+  await expect(page.getByTestId('nav-review-count')).toHaveText('2')
+  const line = page.getByTestId('income-review-row').filter({ hasText: 'TENANT ONE' })
   await expect(line.getByTestId('review-amount')).toHaveValue('200')
   await line.getByTestId('review-type').selectOption('Rent')
   await line.getByTestId('review-amount').fill('100')
   await line.getByTestId('review-approve').click()
   await expect(page.getByText('Approved: Rent, €100.00')).toBeVisible()
+  await expect(page.getByTestId('nav-review-count')).toHaveText('1')
+  // The other line is approved from the rows of Other income: saving it there, unchanged, is the approval too.
+  await page.locator('.bottom-nav').getByRole('link', { name: 'Reports' }).click()
+  await page.getByTestId('other-income-link').click()
+  await page.getByTestId('income-row').filter({ hasText: 'to review' }).click()
+  await expect(page.getByRole('heading', { name: 'Review income' })).toBeVisible()
+  await page.getByTestId('adjust-save').click()
+  await expect(page.getByText('Income approved')).toBeVisible()
   await expect(page.getByTestId('income-review')).toHaveCount(0)
   await expect(page.getByTestId('nav-review-count')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)

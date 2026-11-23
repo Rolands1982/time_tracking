@@ -106,7 +106,7 @@ Conventions that matter:
   **Review of new lines**: a finance-app row the owner has not touched (`needsReview()`: no own `type`, no
   `amountOverride`, not excluded) is listed by `<IncomeReview>` on the Data screen and on Other income, with the
   suggested type and counted amount to approve or change (`approveOtherIncome()`, `approveAllOtherIncome()`); the
-  Data item of the bottom navigation shows how many wait. Until approved a row counts as suggested.
+  Data item of the bottom navigation shows how many wait. Saving such a row from the rows table (the adjust card) approves it too. Until approved a row counts as suggested.
   The Type field is a full dropdown of `knownTypes()` plus "New type…". Rows can also be added by hand (`defaultIncomeDate()` = the Sunday of the current week). Reports adds
   `incomeTotals()` of the period, by type, to the billed work's net EUR as "Total income".
 - **Employer's report** (`src/lib/employerReport.ts`, `/reports/employer`): the monthly Darba devēja ziņojums
