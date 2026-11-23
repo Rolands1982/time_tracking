@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TimeTrackingDB } from '../../src/db/schema'
-import { addOtherIncome, adjustOtherIncome, countedAmount, countResolver, countsNothing, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
+import { addOtherIncome, adjustOtherIncome, approveAllOtherIncome, approveOtherIncome, countedAmount, countResolver, countsNothing, defaultIncomeDate, deleteOtherIncome, incomeTotals, isFromFinanceApp, knownTypes, needsReview, queryOtherIncome, typeResolver, updateOtherIncome } from '../../src/db/income'
 import type { OtherIncome } from '../../src/db/types'
 import type { SyncTable } from '../../src/db/types'
 import { createBackup, restoreBackup } from '../../src/lib/backup'
@@ -145,6 +145,55 @@ describe('other income', () => {
     await restoreBackup(backup, other)
     expect(await other.otherIncome.count()).toBe(2)
     expect((await other.otherIncome.toArray())[0].dirty).toBe(1)
+  })
+})
+
+describe('review of new finance-app lines', () => {
+  const pf = (id: number, extra: Partial<OtherIncome> = {}): OtherIncome => ({
+    date: '2026-11-12', category: 'rent', amount: 200, currency: 'EUR', notes: '', sourceCategory: 'Īres maksa', importKey: `pf:${id}`, createdAt: '', updatedAt: '', ...extra,
+  })
+
+  it('waits for the owner only on finance-app lines they have not touched', () => {
+    expect(needsReview(pf(1))).toBe(true)
+    expect(needsReview(pf(2, { type: 'Rent' }))).toBe(false)
+    expect(needsReview(pf(3, { amountOverride: 0 }))).toBe(false) // counted 0 in the review workbook, never typed
+    expect(needsReview(pf(4, { excluded: true }))).toBe(false)
+    expect(needsReview({ ...pf(5), importKey: undefined })).toBe(false) // added by hand
+  })
+
+  it('approving writes the type and the counted amount on the line', async () => {
+    const [a, b] = (await db.otherIncome.bulkAdd([pf(1), pf(2, { amount: 120 })], { allKeys: true })) as number[]
+    await approveOtherIncome(a, { type: 'Rent', amount: 200 }, db)
+    await approveOtherIncome(b, { type: 'Rent', amount: 100 }, db)
+    const rows = await db.otherIncome.toArray()
+    expect(rows.find((r) => r.id === a)).toMatchObject({ type: 'Rent', amount: 200 })
+    expect(rows.find((r) => r.id === a)!.amountOverride).toBeUndefined() // the booked amount needs no override
+    expect(rows.find((r) => r.id === b)).toMatchObject({ type: 'Rent', amount: 120, amountOverride: 100 })
+    expect(rows.filter(needsReview)).toEqual([])
+    expect(rows.every((r) => r.dirty === 1)).toBe(true) // goes to the cloud on the next sync
+    await expect(approveOtherIncome(a, { type: ' ', amount: 1 }, db)).rejects.toThrow('Choose a type')
+    await expect(approveOtherIncome(a, { type: 'Rent', amount: Number.NaN }, db)).rejects.toThrow('amount')
+  })
+
+  it('approves every waiting line as suggested, zeros included', async () => {
+    await db.otherIncome.bulkAdd([
+      pf(1, { type: 'Rent', date: '2026-09-10' }),
+      pf(2, { type: 'Rent', date: '2026-10-10' }),
+      pf(3), // rent, suggested by the two above
+      pf(4, { category: 'benefit', sourceCategory: 'Mājokļa kredīts', amount: 700, type: 'Expense compensation', amountOverride: 0 }),
+      pf(5, { category: 'benefit', sourceCategory: 'Mājokļa kredīts', amount: 90, type: 'Expense compensation', amountOverride: 0 }),
+      pf(6, { category: 'benefit', sourceCategory: 'Mājokļa kredīts', amount: 650 }), // a type the owner always counts 0
+      { ...pf(7), importKey: undefined, type: 'Sale' }, // by hand: not part of the review
+    ])
+    expect(await approveAllOtherIncome(db)).toBe(2)
+    const rows = await db.otherIncome.toArray()
+    const byKey = (k: string) => rows.find((r) => r.importKey === k)!
+    expect(byKey('pf:3')).toMatchObject({ type: 'Rent' })
+    expect(byKey('pf:3').amountOverride).toBeUndefined()
+    expect(byKey('pf:6')).toMatchObject({ type: 'Expense compensation', amountOverride: 0 })
+    expect(rows.filter(needsReview)).toEqual([])
+    expect(incomeTotals(rows).total).toBe(800) // three rents and the row by hand; the compensations count 0
+    expect(await approveAllOtherIncome(db)).toBe(0)
   })
 })
 

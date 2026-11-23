@@ -575,3 +575,45 @@ tr.editing td {
 tr.editing td:first-child {
   box-shadow: inset 3px 0 0 var(--primary);
 }
+
+/* A line waiting for the owner's approval: its details, then type, counted amount and the button. The controls
+   wrap rather than push the page wider than the screen. */
+.review-line {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.review-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.review-type {
+  flex: 1 1 110px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+input.review-amount {
+  flex: 0 1 92px;
+  width: 92px;
+  min-width: 80px;
+}
+/* How many lines wait, on the navigation item that leads to them. */
+.bottom-nav a {
+  position: relative;
+}
+.nav-count {
+  position: absolute;
+  top: 6px;
+  left: calc(50% + 6px);
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.68rem;
+  line-height: 18px;
+  text-align: center;
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import CloudSyncCard from '../components/CloudSyncCard'
+import IncomeReview from '../components/IncomeReview'
 import UpworkImportCard from '../components/UpworkImportCard'
 import { useToast } from '../components/toastContext'
 import { useSettings } from '../db/hooks'
@@ -127,6 +128,9 @@ export default function DataPage() {
           {counts.entries} entries · {counts.clients} clients
         </span>
       </div>
+
+      {/* New lines from the finance app wait here for the owner's type and amount (nothing shows when none wait). */}
+      <IncomeReview />
 
       <CloudSyncCard />
 

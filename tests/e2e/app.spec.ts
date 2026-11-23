@@ -273,4 +273,37 @@ test('track time with the timer, add an entry, import Excel and see reports', as
   await compose.getByLabel('To').fill('client@example.lv')
   await compose.getByRole('button', { name: 'Cancel' }).click()
   await expect(compose).toHaveCount(0)
+
+  // A line the finance app sent (written straight into the database, as the sync would) waits on the Data screen,
+  // counted on the navigation, until its type and amount are approved.
+  await page.evaluate(async () => {
+    const idb = await new Promise<IDBDatabase>((resolve, reject) => {
+      const r = indexedDB.open('time-tracking')
+      r.onsuccess = () => resolve(r.result)
+      r.onerror = () => reject(r.error)
+    })
+    const tx = idb.transaction('otherIncome', 'readwrite')
+    tx.objectStore('otherIncome').add({
+      date: '2026-11-12', category: 'rent', amount: 200, currency: 'EUR', notes: '', source: 'TENANT ONE', sourceCategory: 'Īres maksa',
+      importKey: 'pf:900', uid: '00000000-0000-4000-8000-000000000900', dirty: 0, createdAt: '', updatedAt: '',
+    })
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+    idb.close()
+  })
+  await page.locator('.bottom-nav').getByRole('link', { name: /Data/ }).click()
+  await page.reload()
+  await expect(page.getByTestId('nav-review-count')).toHaveText('1')
+  const line = page.getByTestId('income-review-row')
+  await expect(line).toContainText('TENANT ONE')
+  await expect(line.getByTestId('review-amount')).toHaveValue('200')
+  await line.getByTestId('review-type').selectOption('Rent')
+  await line.getByTestId('review-amount').fill('100')
+  await line.getByTestId('review-approve').click()
+  await expect(page.getByText('Approved: Rent, €100.00')).toBeVisible()
+  await expect(page.getByTestId('income-review')).toHaveCount(0)
+  await expect(page.getByTestId('nav-review-count')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 })

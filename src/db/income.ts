@@ -101,6 +101,43 @@ export function isFromFinanceApp(row: Pick<OtherIncome, 'importKey'>): boolean {
   return Boolean(row.importKey?.startsWith('pf:'))
 }
 
+/**
+ * A row from the finance app the owner has not decided on yet: no type of their own, no counted amount of their own.
+ * Until then it is filed and counted as suggested (`typeResolver`, `countResolver`).
+ */
+export function needsReview(row: Pick<OtherIncome, 'importKey' | 'type' | 'amountOverride' | 'excluded'>): boolean {
+  return isFromFinanceApp(row) && row.type == null && row.amountOverride == null && !row.excluded
+}
+
+export interface IncomeApproval {
+  type: string
+  /** The amount to count. */
+  amount: number
+}
+
+/**
+ * The owner approves a row: the type and the counted amount are written on it, so they are the owner's from then on
+ * and no longer follow what is learned from other rows.
+ */
+export async function approveOtherIncome(id: number, approval: IncomeApproval, database: TimeTrackingDB = db): Promise<void> {
+  if (!approval.type.trim()) throw new Error('Choose a type')
+  if (!Number.isFinite(approval.amount)) throw new Error('Enter the amount to count')
+  await adjustOtherIncome(id, { type: approval.type, amountOverride: approval.amount }, database)
+}
+
+/** Approve every row waiting for review as suggested. Returns how many. */
+export async function approveAllOtherIncome(database: TimeTrackingDB = db): Promise<number> {
+  return database.transaction('rw', database.otherIncome, async () => {
+    const all = await database.otherIncome.toArray()
+    const typeOf = typeResolver(all)
+    const countOf = countResolver(all, typeOf)
+    // Decide every row from the same starting point: one approval must not change what the next is suggested.
+    const plan = all.filter(needsReview).map((row) => ({ id: row.id!, type: typeOf(row), amount: countOf(row) }))
+    for (const p of plan) await approveOtherIncome(p.id, p, database)
+    return plan.length
+  })
+}
+
 /** What the row counts for: the adjusted amount when the owner set one, else the booked amount. */
 export function countedAmount(row: Pick<OtherIncome, 'amount' | 'amountOverride'>): number {
   return row.amountOverride ?? row.amount

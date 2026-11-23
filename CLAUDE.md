@@ -103,6 +103,10 @@ Conventions that matter:
   that type 0 (at least two adjusted, all to 0), else its booked amount. Totals use that counted amount; rows that
   count nothing (`countsNothing()`: adjusted to 0 or excluded) are left out of totals and hidden on the screen unless
   `settings.incomeShowZero`. The owner leaves a row out by counting it 0 (there is no per-row exclude switch).
+  **Review of new lines**: a finance-app row the owner has not touched (`needsReview()`: no own `type`, no
+  `amountOverride`, not excluded) is listed by `<IncomeReview>` on the Data screen and on Other income, with the
+  suggested type and counted amount to approve or change (`approveOtherIncome()`, `approveAllOtherIncome()`); the
+  Data item of the bottom navigation shows how many wait. Until approved a row counts as suggested.
   The Type field is a full dropdown of `knownTypes()` plus "New type…". Rows can also be added by hand (`defaultIncomeDate()` = the Sunday of the current week). Reports adds
   `incomeTotals()` of the period, by type, to the billed work's net EUR as "Total income".
 - **Employer's report** (`src/lib/employerReport.ts`, `/reports/employer`): the monthly Darba devēja ziņojums

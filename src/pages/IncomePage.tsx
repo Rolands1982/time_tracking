@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useSearchParams } from 'react-router-dom'
+import IncomeReview from '../components/IncomeReview'
 import PeriodPicker from '../components/PeriodPicker'
+import TypeSelect from '../components/TypeSelect'
 import { useToast } from '../components/toastContext'
 import { useSettings } from '../db/hooks'
 import {
@@ -14,6 +16,7 @@ import {
   incomeTotals,
   isFromFinanceApp,
   knownTypes,
+  needsReview,
   queryOtherIncome,
   typeResolver,
   updateOtherIncome,
@@ -46,38 +49,6 @@ type Draft = ManualDraft | AdjustDraft
 
 const emptyDraft = (): ManualDraft => ({ mode: 'manual', date: defaultIncomeDate(), type: '', amount: '', source: '', notes: '' })
 const parseAmount = (s: string) => Number(s.replace(',', '.'))
-const NEW_TYPE = '__new__'
-
-/**
- * Type as a dropdown of every type in use (a text list with suggestions would only offer what matches the text
- * already in it), with "New type…" for one that does not exist yet. An empty value means the suggestion.
- */
-function TypeSelect({ value, onChange, types, suggestion, testId }: { value: string; onChange: (v: string) => void; types: string[]; suggestion?: string; testId: string }) {
-  const [custom, setCustom] = useState(() => Boolean(value) && !types.includes(value))
-  return (
-    <>
-      <select
-        value={custom ? NEW_TYPE : value}
-        onChange={(e) => {
-          const v = e.target.value
-          setCustom(v === NEW_TYPE)
-          onChange(v === NEW_TYPE ? '' : v)
-        }}
-        data-testid={testId}
-      >
-        <option value="">{suggestion ? `Suggested: ${suggestion}` : 'Choose a type'}</option>
-        {types.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-        <option value={NEW_TYPE}>New type…</option>
-      </select>
-      {custom && <input autoFocus value={value} placeholder="New type" onChange={(e) => onChange(e.target.value)} data-testid={`${testId}-new`} />}
-    </>
-  )
-}
-
 /**
  * Other income (rent, investments, sales, benefits…), so Reports can show the whole income of a period: billed work
  * net in EUR plus this. Most rows come from the personal finances app on its daily sync; the owner files them under
@@ -190,6 +161,8 @@ export default function IncomePage() {
         </p>
       </div>
 
+      <IncomeReview />
+
       {draft.mode === 'adjust' ? (
         <AdjustCard
           key={draft.row.id}
@@ -282,6 +255,7 @@ export default function IncomePage() {
                     <td className="nowrap">{formatDate(r.date)}</td>
                     <td>
                       {typeOf(r)}
+                      {needsReview(r) && <span className="badge open"> to review</span>}
                       {r.excluded && <span className="muted"> · excluded</span>}
                       {r.source && <span className="muted"> · {r.source}</span>}
                       {r.notes && <div className="muted small">{r.notes}</div>}
