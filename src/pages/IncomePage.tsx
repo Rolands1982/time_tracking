@@ -9,6 +9,7 @@ import { useSettings } from '../db/hooks'
 import {
   addOtherIncome,
   adjustOtherIncome,
+  approveOtherIncome,
   countResolver,
   countsNothing,
   defaultIncomeDate,
@@ -113,8 +114,15 @@ export default function IncomePage() {
       toast('Enter a number for the counted amount, or leave it empty')
       return
     }
-    await adjustOtherIncome(d.row.id!, { type: d.type, amountOverride: amount, excluded: d.row.excluded })
-    toast('Income adjusted')
+    if (needsReview(d.row)) {
+      // Saving a line that waits for review is the approval: what is shown as suggested is written on the line, so it
+      // leaves the review list also when nothing was changed.
+      await approveOtherIncome(d.row.id!, { type: d.type.trim() || typeOf(d.row), amount: amount ?? countOf(d.row) })
+      toast('Income approved')
+    } else {
+      await adjustOtherIncome(d.row.id!, { type: d.type, amountOverride: amount, excluded: d.row.excluded })
+      toast('Income adjusted')
+    }
     setDraft(emptyDraft())
   }
   const remove = async (id: number) => {
@@ -304,7 +312,7 @@ function AdjustCard({
   const r = draft.row
   return (
     <>
-      <h2>Adjust income</h2>
+      <h2>{needsReview(r) ? 'Review income' : 'Adjust income'}</h2>
       <div className="card stack" data-testid="income-adjust">
         <div>
           <strong>
@@ -341,7 +349,7 @@ function AdjustCard({
             Cancel
           </button>
           <button className="btn primary" onClick={() => onSave(draft)} data-testid="adjust-save">
-            Save
+            {needsReview(r) ? 'Approve' : 'Save'}
           </button>
         </div>
       </div>
