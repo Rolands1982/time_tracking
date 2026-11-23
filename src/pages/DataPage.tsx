@@ -129,10 +129,10 @@ export default function DataPage() {
         </span>
       </div>
 
+      <CloudSyncCard />
+
       {/* New lines from the finance app wait here for the owner's type and amount (nothing shows when none wait). */}
       <IncomeReview />
-
-      <CloudSyncCard />
 
       <h2>Import Excel time sheet</h2>
       <div className="card stack">
