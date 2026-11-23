@@ -1,4 +1,7 @@
+import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink } from 'react-router-dom'
+import { needsReview } from '../db/income'
+import { db } from '../db/schema'
 
 const items = [
   { to: '/', label: 'Timer', icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.7z' },
@@ -9,6 +12,8 @@ const items = [
 ]
 
 export default function BottomNav() {
+  // New finance-app lines waiting for approval show as a count on Data, where they are reviewed.
+  const toReview = useLiveQuery(() => db.otherIncome.filter(needsReview).count(), [], 0)
   return (
     <nav className="bottom-nav" aria-label="Main">
       {items.map((it) => (
@@ -17,6 +22,11 @@ export default function BottomNav() {
             <path d={it.icon} />
           </svg>
           {it.label}
+          {it.to === '/data' && toReview > 0 && (
+            <span className="nav-count" aria-label={`${toReview} income lines to review`} data-testid="nav-review-count">
+              {toReview}
+            </span>
+          )}
         </NavLink>
       ))}
     </nav>

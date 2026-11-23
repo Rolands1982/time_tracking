@@ -41,7 +41,8 @@ and it behaves like a native app, including offline.
   and write it into the cloud database unattended (`docs/automation/upwork-daily.md`).
 - **Other income**: rent, investment returns, sales of goods, social benefits and the rest. The personal finances
   app sends its income records on every bank sync, with their real dates, categories and descriptions; rows can
-  also be added by hand. Reports adds them to the billed work for the total income of a week, month or year.
+  also be added by hand. New lines from the finance app wait on the Data screen (with a count on its navigation
+  icon) until their type and counted amount are approved. Reports adds them to the billed work for the total income of a week, month or year.
 - **Employer's report for VID**: the monthly Darba devēja ziņojums from the tracked hours (plus administrative
   hours, capped at the month's working-time norm) and a fixed gross salary; as an XML file for EDS, or sent to
   EDS, checked and submitted from the app through an Edge Function that holds the EDS API key.
